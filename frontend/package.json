@@ -1,0 +1,28 @@
+{
+  "name": "qima-scratch-frontend",
+  "version": "1.0.0",
+  "description": "奇码科技学习平台前端",
+  "scripts": {
+    "start": "umi dev",
+    "build": "umi build",
+    "setup": "umi setup"
+  },
+  "dependencies": {
+    "@ant-design/icons": "5.3.7",
+    "@umijs/max": "4.3.17",
+    "antd": "5.15.0",
+    "axios": "1.6.7",
+    "http-parser": "^1.0.3",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "18.2.64",
+    "@types/react-dom": "18.2.21",
+    "typescript": "5.3.3",
+    "umi": "4.3.17"
+  },
+  "overrides": {
+    "@ant-design/icons": "5.3.7"
+  }
+}

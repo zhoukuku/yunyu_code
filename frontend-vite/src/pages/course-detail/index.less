@@ -1,0 +1,50 @@
+.course-detail-page {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+
+  .course-cover {
+    height: 200px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .lesson-item {
+    &.completed {
+      opacity: 0.7;
+    }
+  }
+
+  .action-card {
+    position: sticky;
+    top: 24px;
+
+    .progress-section {
+      text-align: center;
+      margin-bottom: 24px;
+
+      .progress-text {
+        margin-top: 12px;
+        color: #666;
+        font-size: 14px;
+      }
+    }
+
+    .action-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+  }
+}
+
+.course-detail-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+}

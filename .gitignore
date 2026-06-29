@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build output
+dist/
+build/
+*.log
+
+# Database
+*.sqlite
+*.sqlite-journal
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+backend.log
+backend_new.log
+backend_test.log
+electron*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temp files
+temp/
+tmp/
+*.tmp
+
+# Electron
+win-unpacked/
+win-unpacked-*/
+release/
+output/
+resources/app/
+*.asar
+
+# Test results
+testResults/
+testResults.json
+
+# Cache
+.cache/
+.nestjs/
+.tsbuildinfo
+
+# Backup
+backup/
+*.backup
+*.bak
+
+# Archives
+archives/
+
+# Scripts (compiled/test outputs)
+test_*.js
+test_*.py
+test_*.cpp
+scraped-data/
+
+# electron-builder cache
+electron/
+dist-electron/
