@@ -110,20 +110,22 @@ export class ProgressService {
     // Find continue learning (last lesson the user was on)
     let continueLearning: LearningStats['continueLearning'] = null;
     const lastRecords = enrolledCourses
-      .filter(uc => uc.lastLessonId > 0)
+      .filter(uc => uc.lastLessonId != null && uc.lastLessonId > 0)
       .sort((a, b) => new Date(b.enrolledAt).getTime() - new Date(a.enrolledAt).getTime());
 
     if (lastRecords.length > 0) {
       const last = lastRecords[0];
-      const lesson = await this.lessonRepository.findOne({ where: { id: last.lastLessonId } });
-      const course = courseMap.get(last.courseId);
-      if (lesson && course) {
-        continueLearning = {
-          courseId: last.courseId,
-          lessonId: last.lastLessonId,
-          courseName: course.courseName,
-          lessonName: lesson.lessonName,
-        };
+      if (last.lastLessonId != null) {
+        const lesson = await this.lessonRepository.findOne({ where: { id: last.lastLessonId } });
+        const course = courseMap.get(last.courseId);
+        if (lesson && course) {
+          continueLearning = {
+            courseId: last.courseId,
+            lessonId: last.lastLessonId,
+            courseName: course.courseName,
+            lessonName: lesson.lessonName,
+          };
+        }
       }
     }
 
@@ -249,7 +251,7 @@ export class ProgressService {
       let lastLesson: Lesson | null = null;
       let lastStudyTime: Date | null = null;
 
-      if (uc.lastLessonId > 0) {
+      if (uc.lastLessonId != null && uc.lastLessonId > 0) {
         const found = lessons.find(l => l.id === uc.lastLessonId);
         if (found) lastLesson = found;
       }
@@ -273,7 +275,7 @@ export class ProgressService {
         totalLessons: course.totalLessons,
         completedLessons: completedCount,
         progressPercent,
-        lastLessonId: uc.lastLessonId,
+        lastLessonId: uc.lastLessonId ?? 0,
         lastLessonName: lastLesson?.lessonName || '',
         enrolledAt: uc.enrolledAt,
         lastStudyTime,

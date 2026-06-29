@@ -1836,7 +1836,7 @@ class PythonCodeExecutor {
       },
       OrderedDict: (obj) => ({ ...obj, _order: Object.keys(obj || {}), move_to_end: (k) => { const idx = obj._order.indexOf(k); if (idx >= 0) { obj._order.splice(idx, 1); obj._order.push(k); } } }),
       defaultdict: (defaultFn) => ({ __default: defaultFn, _data: {}, __getitem__: function(k) { if (!(k in this._data)) this._data[k] = this.__default(); return this._data[k]; }, __setitem__: (k, v) => { this._data[k] = v; }, __contains__: (k) => k in this._data, __iter__: () => Object.keys(this._data)[Symbol.iterator](), get: (k, d) => k in this._data ? this._data[k] : d }),
-      ChainMap: (...maps) => ({ maps, __getitem__: (k) => { for (const m of maps) { if (k in m) return m[k]; } throw new Error(`KeyError: ${k}`); }, __iter__: () => { const seen = new Set(); for (const m of maps) { for (const k of Object.keys(m)) { if (!seen.has(k)) { seen.add(k); yield k; } } } }, __len__: () => [...this.__iter__()].length }),
+      ChainMap: (...maps) => ({ maps, __getitem__: (k) => { for (const m of maps) { if (k in m) return m[k]; } throw new Error(`KeyError: ${k}`); }, __iter__: function* () { const seen = new Set(); for (const m of maps) { for (const k of Object.keys(m)) { if (!seen.has(k)) { seen.add(k); yield k; } } } }, __len__() { return [...this.__iter__()].length; } }),
     };
 
     // ============================================================================
@@ -2162,50 +2162,67 @@ class PythonCodeExecutor {
     try {
       const jsCode = pythonToJS(code);
 
-      const contextKeys = ['int', 'float', 'str', 'bool', 'list', 'dict', 'set', 'tuple', 'frozenset', 'bytes', 'bytearray', 'complex', 'range', 'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter', 'any', 'all', 'next', 'iter', 'slice', 'abs', 'min', 'max', 'sum', 'round', 'pow', 'divmod', 'chr', 'ord', 'hex', 'oct', 'bin', 'repr', 'ascii', 'format', 'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr', 'delattr', 'id', 'hash', 'callable', 'dir', 'vars', 'help', 'exit', 'quit'];
-      const contextValues = [int, float, str, bool, list, dict, set, tuple, frozenset, bytes, bytearray, complex, range, sorted, reversed, enumerate, zip, map, filter, any, all, next, iter, slice, abs, min, max, sum, round, pow, divmod, chr, ord, hex, oct, bin, repr, ascii, format, isinstance, issubclass, hasattr, getattr, setattr, delattr, id, hash, callable, dir, vars, help, exit, quit];
+      // Build all namespaces with their keys and values
+      // Use safeBuiltins properties directly (not bare identifiers which are undefined)
+      const bi = safeBuiltins;
+      const allNamespaces = [
+        { keys: ['int', 'float', 'str', 'bool', 'list', 'dict', 'set', 'tuple', 'frozenset', 'bytes', 'bytearray', 'complex', 'range', 'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter', 'any', 'all', 'next', 'iter', 'slice', 'abs', 'min', 'max', 'sum', 'round', 'pow', 'divmod', 'chr', 'ord', 'hex', 'oct', 'bin', 'repr', 'ascii', 'format', 'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr', 'delattr', 'id', 'hash', 'callable', 'dir', 'vars', 'help', 'exit', 'quit'], vals: [bi.int, bi.float, bi.str, bi.bool, bi.list, bi.dict, bi.set, bi.tuple, bi.frozenset, bi.bytes, bi.bytearray, bi.complex, bi.range, bi.sorted, bi.reversed, bi.enumerate, bi.zip, bi.map, bi.filter, bi.any, bi.all, bi.next, bi.iter, bi.slice, bi.abs, bi.min, bi.max, bi.sum, bi.round, bi.pow, bi.divmod, bi.chr, bi.ord, bi.hex, bi.oct, bi.bin, bi.repr, bi.ascii, bi.format, bi.isinstance, bi.issubclass, bi.hasattr, bi.getattr, bi.setattr, bi.delattr, bi.id, bi.hash, bi.callable, bi.dir, bi.vars, bi.help, bi.exit, bi.quit] },
+        { keys: Object.keys(mathNamespace), vals: Object.values(mathNamespace) },
+        { keys: Object.keys(randomNamespace), vals: Object.values(randomNamespace) },
+        { keys: ['date', 'datetime', 'time', 'timedelta', 'now', 'utcnow', 'today', 'fromtimestamp', 'strptime'], vals: [Date, DateTime, Time, TimeDelta, datetimeNamespace.now, datetimeNamespace.utcnow, datetimeNamespace.today, datetimeNamespace.fromtimestamp, datetimeNamespace.strptime] },
+        { keys: Object.keys(jsonNamespace), vals: Object.values(jsonNamespace) },
+        { keys: Object.keys(stringNamespace), vals: Object.values(stringNamespace) },
+        { keys: Object.keys(collectionsNamespace), vals: Object.values(collectionsNamespace) },
+        { keys: Object.keys(itertoolsNamespace), vals: Object.values(itertoolsNamespace) },
+        { keys: Object.keys(functoolsNamespace), vals: Object.values(functoolsNamespace) },
+        { keys: Object.keys(osNamespace), vals: Object.values(osNamespace) },
+        { keys: Object.keys(turtleNamespace), vals: Object.values(turtleNamespace) },
+        { keys: Object.keys(sysNamespace), vals: Object.values(sysNamespace) },
+      ];
 
-      const mathKeys = Object.keys(mathNamespace);
-      const mathValues = Object.values(mathNamespace);
-      const randomKeys = Object.keys(randomNamespace);
-      const randomValues = Object.values(randomNamespace);
+      // Deduplicate: first namespace (builtins) wins for conflicting names
+      const allParamNames = [];
+      const allParamValues = [];
+      const nsSurvivedIndices = allNamespaces.map(() => []); // track which original indices survived for each ns
+      const seen = new Set();
 
-      // Create datetime classes
-      const datetimeKeys = ['date', 'datetime', 'time', 'timedelta', 'now', 'utcnow', 'today', 'fromtimestamp', 'strptime'];
-      const datetimeValues = [Date, DateTime, Time, TimeDelta, datetimeNamespace.now, datetimeNamespace.utcnow, datetimeNamespace.today, datetimeNamespace.fromtimestamp, datetimeNamespace.strptime];
+      for (let nsIdx = 0; nsIdx < allNamespaces.length; nsIdx++) {
+        const ns = allNamespaces[nsIdx];
+        for (let k = 0; k < ns.keys.length; k++) {
+          if (!seen.has(ns.keys[k])) {
+            seen.add(ns.keys[k]);
+            nsSurvivedIndices[nsIdx].push(k);
+            allParamNames.push(ns.keys[k]);
+            allParamValues.push(ns.vals[k]);
+          }
+        }
+      }
 
-      const jsonKeys = Object.keys(jsonNamespace);
-      const jsonValues = Object.values(jsonNamespace);
-      const stringKeys = Object.keys(stringNamespace);
-      const stringValues = Object.values(stringNamespace);
-      const collectionsKeys = Object.keys(collectionsNamespace);
-      const collectionsValues = Object.values(collectionsNamespace);
-      const itertoolsKeys = Object.keys(itertoolsNamespace);
-      const itertoolsValues = Object.values(itertoolsNamespace);
-      const functoolsKeys = Object.keys(functoolsNamespace);
-      const functoolsValues = Object.values(functoolsNamespace);
-      const osKeys = Object.keys(osNamespace);
-      const osValues = Object.values(osNamespace);
-      const turtleKeys = Object.keys(turtleNamespace);
-      const turtleValues = Object.values(turtleNamespace);
-      const sysKeys = Object.keys(sysNamespace);
-      const sysValues = Object.values(sysNamespace);
+      // Build namespace object construction code using surviving key names (ES6 shorthand)
+      const buildNsObj = (nsIdx) => {
+        const entries = nsSurvivedIndices[nsIdx].map(i => allNamespaces[nsIdx].keys[i]).join(', ');
+        return `{${entries}}`;
+      };
+
+      const nsBuilders = [
+        '', // builtins are used directly, no object needed
+        `const __math = ${buildNsObj(1)};`,
+        `const __random = ${buildNsObj(2)};`,
+        `const __datetime = ${buildNsObj(3)};`,
+        `const __json = ${buildNsObj(4)};`,
+        `const __string = ${buildNsObj(5)};`,
+        `const __collections = ${buildNsObj(6)};`,
+        `const __itertools = ${buildNsObj(7)};`,
+        `const __functools = ${buildNsObj(8)};`,
+        `const __os = ${buildNsObj(9)};`,
+        `const __turtle = ${buildNsObj(10)};`,
+        `const __sys = ${buildNsObj(11)};`,
+      ];
 
       const fn = new Function(
-        ...contextKeys, ...mathKeys, ...randomKeys, ...datetimeKeys, ...jsonKeys, ...stringKeys, ...collectionsKeys, ...itertoolsKeys, ...functoolsKeys, ...osKeys, ...turtleKeys, ...sysKeys,
-        '__print', '__input',
+        ...allParamNames, '__print', '__input',
         `"use strict";
-        const __math = {${mathKeys.map((k, i) => k + ': __math_' + i).join(', ')}};
-        const __random = {${randomKeys.map((k, i) => k + ': __random_' + i).join(', ')}};
-        const __datetime = {${datetimeKeys.map((k, i) => k + ': __datetime_' + i).join(', ')}};
-        const __json = {${jsonKeys.map((k, i) => k + ': __json_' + i).join(', ')}};
-        const __string = {${stringKeys.map((k, i) => k + ': __string_' + i).join(', ')}};
-        const __collections = {${collectionsKeys.map((k, i) => k + ': __collections_' + i).join(', ')}};
-        const __itertools = {${itertoolsKeys.map((k, i) => k + ': __itertools_' + i).join(', ')}};
-        const __functools = {${functoolsKeys.map((k, i) => k + ': __functools_' + i).join(', ')}};
-        const __os = {${osKeys.map((k, i) => k + ': __os_' + i).join(', ')}};
-        const __turtle = {${turtleKeys.map((k, i) => k + ': __turtle_' + i).join(', ')}};
-        const __sys = {${sysKeys.map((k, i) => k + ': __sys_' + i).join(', ')}};
+        ${nsBuilders.join('\n        ')}
         const __format = (v) => {
           if (v === null) return 'None';
           if (v === undefined) return 'None';
@@ -2230,7 +2247,7 @@ class PythonCodeExecutor {
       );
 
       await fn(
-        ...contextValues, ...mathValues, ...randomValues, ...datetimeValues, ...jsonValues, ...stringValues, ...collectionsValues, ...itertoolsValues, ...functoolsValues, ...osValues, ...turtleValues, ...sysValues,
+        ...allParamValues,
         (...args) => this.log(args.map(a => this._formatValue(a)).join(' ')),
         async (prompt) => new Promise(resolve => { this._inputResolve = resolve; this.onInput?.(prompt, resolve); })
       );

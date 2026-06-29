@@ -296,10 +296,8 @@ export class CodeExecutionService {
 
     for (const p of pythonPaths) {
       try {
-        const result = spawn(p, ['--version'], { shell: true, windowsHide: true });
-        // Sync check isn't ideal but works for detection
-        const { code } = require('child_process').spawnSync(p, ['--version'], { shell: true });
-        if (code === 0) {
+        const { status, error } = require('child_process').spawnSync(p, ['--version'], { shell: true, timeout: 5000 });
+        if (status === 0 && !error) {
           return p;
         }
       } catch {
@@ -453,6 +451,12 @@ export class CodeExecutionService {
       { cmd: 'g++', args: ['--version'], name: 'g++' },
       { cmd: 'clang++', args: ['--version'], name: 'clang++' },
       { cmd: 'c++', args: ['--version'], name: 'c++' },
+      // Windows-specific paths for common C++ compiler installations
+      { cmd: 'C:\\MinGW\\bin\\g++.exe', args: ['--version'], name: 'g++ (MinGW)' },
+      { cmd: 'C:\\mingw64\\bin\\g++.exe', args: ['--version'], name: 'g++ (MinGW64)' },
+      { cmd: 'C:\\msys64\\mingw64\\bin\\g++.exe', args: ['--version'], name: 'g++ (MSYS2)' },
+      { cmd: 'C:\\Program Files\\mingw64\\bin\\g++.exe', args: ['--version'], name: 'g++ (Program Files)' },
+      { cmd: 'cl', args: ['/?'], name: 'MSVC' },
     ];
 
     let foundCompiler: string | null = null;

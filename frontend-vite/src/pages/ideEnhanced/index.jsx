@@ -138,16 +138,38 @@ class CodeExecutor {
 
     try {
       const jsCode = pythonToJS(code);
-      const contextKeys = ['int', 'float', 'str', 'bool', 'list', 'dict', ...Object.keys(safeBuiltins)];
-      const contextValues = [int, float, str, bool, list, dict, ...Object.values(safeBuiltins)];
+      const rawContextKeys = ['int', 'float', 'str', 'bool', 'list', 'dict', ...Object.keys(safeBuiltins)];
+      const rawContextValues = [int, float, str, bool, list, dict, ...Object.values(safeBuiltins)];
       const mathKeys = Object.keys(mathNamespace);
       const mathValues = Object.values(mathNamespace);
 
-      const fn = new Function(...contextKeys, ...mathKeys, '__print', '__input', '__this', `"use strict";return (async () => {try {${jsCode}} catch (__py_error) {const errorMsg = __py_error.message || String(__py_error);const stack = __py_error.stack || '';const lineMatch = stack.match(/<anonymous>:(\d+):(\d+)/);let lineInfo = '';if (lineMatch) {const jsLine = parseInt(lineMatch[1]) - 12;lineInfo = \` (行号 ~\${jsLine})\`;}throw new Error(\`Python执行错误: \${errorMsg}\${lineInfo}\`);}})()`);
+      // Deduplicate param names to avoid "Duplicate parameter name" in strict mode
+      const allParamNames = [];
+      const allParamValues = [];
+      const seen = new Set();
+      for (let i = 0; i < rawContextKeys.length; i++) {
+        if (!seen.has(rawContextKeys[i])) {
+          seen.add(rawContextKeys[i]);
+          allParamNames.push(rawContextKeys[i]);
+          allParamValues.push(rawContextValues[i]);
+        }
+      }
+      const mathSurvived = [];
+      for (let i = 0; i < mathKeys.length; i++) {
+        if (!seen.has(mathKeys[i])) {
+          seen.add(mathKeys[i]);
+          mathSurvived.push(i);
+          allParamNames.push(mathKeys[i]);
+          allParamValues.push(mathValues[i]);
+        }
+      }
+      const mathObj = mathSurvived.length ? `const __math = {${mathSurvived.map(i => mathKeys[i]).join(',')}};` : 'const __math = {};';
+
+      const fn = new Function(...allParamNames, '__print', '__input', '__this', `"use strict";${mathObj}return (async () => {try {${jsCode}} catch (__py_error) {const errorMsg = __py_error.message || String(__py_error);const stack = __py_error.stack || '';const lineMatch = stack.match(/<anonymous>:(\d+):(\d+)/);let lineInfo = '';if (lineMatch) {const jsLine = parseInt(lineMatch[1]) - 12;lineInfo = \` (行号 ~\${jsLine})\`;}throw new Error(\`Python执行错误: \${errorMsg}\${lineInfo}\`);}})()`);
 
       const thisProxy = new Proxy({}, { get: (_, prop) => { if (prop === '_output') return this.output; return (...args) => this.log(`${prop}(${args.map(a => JSON.stringify(a)).join(', ')})`, 'function'); } });
 
-      await fn(...contextValues, ...mathValues, (...args) => this.log(args.map(a => this._formatValue(a)).join(' ')), async (prompt) => { return new Promise(resolve => { this.onInput?.(prompt, resolve); }); }, thisProxy);
+      await fn(...allParamValues, (...args) => this.log(args.map(a => this._formatValue(a)).join(' ')), async (prompt) => { return new Promise(resolve => { this.onInput?.(prompt, resolve); }); }, thisProxy);
       this.log('\n=== 执行完成 ===', 'info');
     } catch (e) {
       this.error(`\n=== 执行错误 ===`, e.message);
@@ -489,13 +511,60 @@ export default function IDEEnhancedPage() {
 
   const createDefaultCostume = (color) => {
     const canvas = document.createElement('canvas');
-    canvas.width = 100; canvas.height = 100;
+    canvas.width = 200; canvas.height = 200;
     const ctx = canvas.getContext('2d');
+    const cx = 100, cy = 100;
+
+    // Scratch-style cat head
     ctx.fillStyle = color;
-    ctx.beginPath(); ctx.arc(50, 50, 45, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#000';
-    ctx.beginPath(); ctx.arc(35, 40, 8, 0, Math.PI * 2); ctx.arc(65, 40, 8, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(50, 60, 20, 0, Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy - 5, 55, 0, Math.PI * 2); ctx.fill();
+
+    // Ears
+    ctx.beginPath(); ctx.moveTo(cx - 48, cy - 42); ctx.lineTo(cx - 28, cy - 77); ctx.lineTo(cx - 13, cy - 42); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx + 48, cy - 42); ctx.lineTo(cx + 28, cy - 77); ctx.lineTo(cx + 13, cy - 42); ctx.fill();
+
+    // Inner ears
+    ctx.fillStyle = '#FFB3B3';
+    ctx.beginPath(); ctx.moveTo(cx - 42, cy - 42); ctx.lineTo(cx - 28, cy - 67); ctx.lineTo(cx - 18, cy - 42); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx + 42, cy - 42); ctx.lineTo(cx + 28, cy - 67); ctx.lineTo(cx + 18, cy - 42); ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath(); ctx.ellipse(cx - 20, cy - 15, 16, 19, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + 20, cy - 15, 16, 19, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Pupils
+    ctx.fillStyle = '#1A1A1A';
+    ctx.beginPath(); ctx.arc(cx - 18, cy - 15, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 22, cy - 15, 8, 0, Math.PI * 2); ctx.fill();
+
+    // Highlights
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath(); ctx.arc(cx - 14, cy - 18, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + 26, cy - 18, 3, 0, Math.PI * 2); ctx.fill();
+
+    // Nose
+    ctx.fillStyle = '#FF9999';
+    ctx.beginPath(); ctx.moveTo(cx, cy - 2); ctx.lineTo(cx - 6, cy + 6); ctx.lineTo(cx + 6, cy + 6); ctx.fill();
+
+    // Mouth
+    ctx.strokeStyle = '#1A1A1A'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy + 6); ctx.lineTo(cx, cy + 18); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - 12, cy + 12); ctx.quadraticCurveTo(cx, cy + 22, cx, cy + 18); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + 12, cy + 12); ctx.quadraticCurveTo(cx, cy + 22, cx, cy + 18); ctx.stroke();
+
+    // Whiskers
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1.5;
+    for (let side = -1; side <= 1; side += 2) {
+      for (let dy = -5; dy <= 5; dy += 5) {
+        ctx.beginPath(); ctx.moveTo(cx + side * 25, cy - 2 + dy); ctx.lineTo(cx + side * 55, cy - 8 + dy); ctx.stroke();
+      }
+    }
+
+    // Body
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.ellipse(cx, cy + 73, 45, 40, 0, 0, Math.PI * 2); ctx.fill();
+
     return canvas.toDataURL('image/png');
   };
 
@@ -613,6 +682,7 @@ export default function IDEEnhancedPage() {
       ]},
       { kind: 'category', name: '变量', colour: '#FF8C1A', custom: 'VARIABLE' },
       { kind: 'category', name: '列表', colour: '#FF661A', custom: 'LIST' },
+      { kind: 'category', name: '自制积木', colour: '#FF6680', custom: 'PROCEDURE' },
       { kind: 'category', name: '画笔', colour: '#00A0A0', contents: [
         { kind: 'block', type: 'pen_up' }, { kind: 'block', type: 'pen_down' }, { kind: 'block', type: 'pen_color' },
         { kind: 'block', type: 'pen_size' }, { kind: 'block', type: 'pen_clear' }, { kind: 'block', type: 'pen_stamp' },

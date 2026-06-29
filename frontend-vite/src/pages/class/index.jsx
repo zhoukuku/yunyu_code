@@ -52,7 +52,7 @@ export default function ClassPage() {
     { title: '班级名称', dataIndex: 'className' },
     { title: '最近课程', dataIndex: 'lastCourseName' },
     { title: '学生数', dataIndex: 'studentNum', render: n => `${n}人` },
-    { title: '课程进度', dataIndex: 'hadCourseNum', render: (_, r) => <Progress percent={Math.round(r.hadCourseNum / r.totalCourseNum * 100)} size="small" /> },
+    { title: '课程进度', dataIndex: 'hadCourseNum', render: (_, r) => <Progress percent={r.totalCourseNum ? Math.round(r.hadCourseNum / r.totalCourseNum * 100) : 0} size="small" /> },
     { title: '状态', dataIndex: 'isEnd', render: v => <Tag color={v ? 'red' : 'green'}>{v ? '已结束' : '进行中'}</Tag> },
     { title: '操作', render: (_, r) => <Button type="link" icon={<PlayCircleOutlined />} onClick={() => navigate(`/ide/${r.id}`)}>进入课堂</Button> },
   ];

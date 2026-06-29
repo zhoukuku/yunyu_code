@@ -30,9 +30,10 @@ export default function MyWorksPage() {
     setLoading(true);
     try {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
-      const data = await getProjects(user.id);
-      setProjects(data);
-      setFilteredProjects(data);
+      const res = await getProjects(user.id);
+      const projectsList = res?.result || res?.records || (Array.isArray(res) ? res : []);
+      setProjects(projectsList);
+      setFilteredProjects(projectsList);
     } catch (error) {
       console.error('获取项目列表失败:', error);
     } finally {

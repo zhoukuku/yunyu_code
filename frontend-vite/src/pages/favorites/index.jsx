@@ -16,8 +16,9 @@ export default function FavoritesPage() {
   const fetchFavorites = async () => {
     setLoading(true);
     try {
-      const data = await getFavorites();
-      setFavorites(data);
+      const res = await getFavorites();
+      const favList = res?.result || res?.records || (Array.isArray(res) ? res : []);
+      setFavorites(favList);
     } catch (error) {
       console.error('获取收藏列表失败:', error);
       message.error('获取收藏列表失败');

@@ -227,14 +227,6 @@ class CodeExecutor {
       },
     };
 
-    // Add variable argument names for isinstance
-    const int = 'int';
-    const float = 'float';
-    const str = 'str';
-    const bool = 'bool';
-    const list = 'list';
-    const dict = 'dict';
-
     // Safe math functions
     const mathNamespace = {
       'pi': Math.PI,
@@ -395,16 +387,38 @@ class CodeExecutor {
     try {
       const jsCode = pythonToJS(code);
 
-      // Create execution context
-      const contextKeys = ['int', 'float', 'str', 'bool', 'list', 'dict', ...Object.keys(safeBuiltins)];
-      const contextValues = [int, float, str, bool, list, dict, ...Object.values(safeBuiltins)];
+      // Create execution context with dedup to avoid "Duplicate parameter name" in strict mode
+      const rawContextKeys = Object.keys(safeBuiltins);
+      const rawContextValues = Object.values(safeBuiltins);
       const mathKeys = Object.keys(mathNamespace);
       const mathValues = Object.values(mathNamespace);
 
+      const allParamNames = [];
+      const allParamValues = [];
+      const seen = new Set();
+      for (let i = 0; i < rawContextKeys.length; i++) {
+        if (!seen.has(rawContextKeys[i])) {
+          seen.add(rawContextKeys[i]);
+          allParamNames.push(rawContextKeys[i]);
+          allParamValues.push(rawContextValues[i]);
+        }
+      }
+      const mathSurvived = [];
+      for (let i = 0; i < mathKeys.length; i++) {
+        if (!seen.has(mathKeys[i])) {
+          seen.add(mathKeys[i]);
+          mathSurvived.push(i);
+          allParamNames.push(mathKeys[i]);
+          allParamValues.push(mathValues[i]);
+        }
+      }
+      const mathObj = mathSurvived.length ? `const __math = {${mathSurvived.map(i => mathKeys[i]).join(',')}};` : 'const __math = {};';
+
       // Build function with safe context
       const fn = new Function(
-        ...contextKeys, ...mathKeys, '__print', '__input', '__this',
+        ...allParamNames, '__print', '__input', '__this',
         `"use strict";
+        ${mathObj}
         return (async () => {
           try {
             ${jsCode}
@@ -431,7 +445,7 @@ class CodeExecutor {
         }
       });
 
-      await fn(...contextValues, ...mathValues,
+      await fn(...allParamValues,
         (...args) => this.log(args.map(a => this._formatValue(a)).join(' ')),
         async (prompt) => {
           return new Promise(resolve => {
@@ -1566,15 +1580,6 @@ class ScratchInterpreter {
     this.lists[listName] = [];
   }
 
-  data_replaceitemoflist(spriteId, index, listName, newItem) {
-    this.lists = this.lists || {};
-    const list = this.lists[listName] || [];
-    const idx = Math.floor(index) - 1;
-    if (idx >= 0 && idx < list.length) {
-      list[idx] = newItem;
-    }
-  }
-
   data_showlist(spriteId, listName) {
     // UI handling
   }
@@ -1798,7 +1803,7 @@ export default function IDEPage() {
     setSelectedSprite(defaultSprite.id);
     setProjectData({
       stage: {
-        backdrops: [{ id: generateId(), name: '背景1', dataUrl: '' }],
+        backdrops: [{ id: generateId(), name: '背景1', dataUrl: createDefaultBackdrop() }],
         currentBackdrop: 0,
       },
     });
@@ -1806,21 +1811,153 @@ export default function IDEPage() {
 
   const createDefaultCostume = (color) => {
     const canvas = document.createElement('canvas');
-    canvas.width = 100;
-    canvas.height = 100;
+    canvas.width = 200;
+    canvas.height = 200;
     const ctx = canvas.getContext('2d');
+    const cx = 100, cy = 100;
+
+    // Scratch-style cat body
+    // Head
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(50, 50, 45, 0, Math.PI * 2);
+    ctx.arc(cx, cy - 5, 55, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#000';
+
+    // Ears (triangles)
     ctx.beginPath();
-    ctx.arc(35, 40, 8, 0, Math.PI * 2);
-    ctx.arc(65, 40, 8, 0, Math.PI * 2);
+    ctx.moveTo(cx - 48, cy - 42);
+    ctx.lineTo(cx - 28, cy - 77);
+    ctx.lineTo(cx - 13, cy - 42);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(cx + 48, cy - 42);
+    ctx.lineTo(cx + 28, cy - 77);
+    ctx.lineTo(cx + 13, cy - 42);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner ears
+    ctx.fillStyle = '#FFB3B3';
+    ctx.beginPath();
+    ctx.moveTo(cx - 42, cy - 42);
+    ctx.lineTo(cx - 28, cy - 67);
+    ctx.lineTo(cx - 18, cy - 42);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(cx + 42, cy - 42);
+    ctx.lineTo(cx + 28, cy - 67);
+    ctx.lineTo(cx + 18, cy - 42);
+    ctx.closePath();
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.ellipse(cx - 20, cy - 15, 16, 19, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(50, 60, 20, 0, Math.PI);
+    ctx.ellipse(cx + 20, cy - 15, 16, 19, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pupils
+    ctx.fillStyle = '#1A1A1A';
+    ctx.beginPath();
+    ctx.arc(cx - 18, cy - 15, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 22, cy - 15, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eye highlights
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(cx - 14, cy - 18, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 26, cy - 18, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Nose
+    ctx.fillStyle = '#FF9999';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 2);
+    ctx.lineTo(cx - 6, cy + 6);
+    ctx.lineTo(cx + 6, cy + 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Mouth
+    ctx.strokeStyle = '#1A1A1A';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 6);
+    ctx.lineTo(cx, cy + 18);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, cy + 12);
+    ctx.quadraticCurveTo(cx, cy + 22, cx, cy + 18);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + 12, cy + 12);
+    ctx.quadraticCurveTo(cx, cy + 22, cx, cy + 18);
+    ctx.stroke();
+
+    // Whiskers
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1.5;
+    for (let side = -1; side <= 1; side += 2) {
+      for (let dy = -5; dy <= 5; dy += 5) {
+        ctx.beginPath();
+        ctx.moveTo(cx + side * 25, cy - 2 + dy);
+        ctx.lineTo(cx + side * 55, cy - 8 + dy);
+        ctx.stroke();
+      }
+    }
+
+    // Body
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 73, 45, 40, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    return canvas.toDataURL('image/png');
+  };
+
+  const createDefaultBackdrop = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 480;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+
+    // Sky gradient backdrop
+    const gradient = ctx.createLinearGradient(0, 0, 0, 360);
+    gradient.addColorStop(0, '#1a1a4e');
+    gradient.addColorStop(0.5, '#3a3a8e');
+    gradient.addColorStop(1, '#2a5a3a');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 480, 360);
+
+    // Stars
+    ctx.fillStyle = '#FFFFFF';
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * 480;
+      const y = Math.random() * 200;
+      const r = Math.random() * 2 + 0.5;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Ground
+    ctx.fillStyle = '#2a5a2a';
+    ctx.fillRect(0, 260, 480, 100);
+    ctx.fillStyle = '#3a7a3a';
+    ctx.fillRect(0, 260, 480, 5);
+
     return canvas.toDataURL('image/png');
   };
 
@@ -2015,6 +2152,9 @@ export default function IDEPage() {
           { kind: 'block', type: 'event_whenthisspriteclicked' },
           { kind: 'block', type: 'event_whenbackdropswitchto' },
           { kind: 'block', type: 'event_whengreaterthan' },
+          { kind: 'block', type: 'event_broadcast' },
+          { kind: 'block', type: 'event_broadcastandwait' },
+          { kind: 'block', type: 'event_whenbroadcastreceived' },
         ]
       },
       {
@@ -2096,6 +2236,13 @@ export default function IDEPage() {
         name: '列表',
         colour: '#FF661A',
         custom: 'LIST',
+        contents: []
+      },
+      {
+        kind: 'category',
+        name: '自制积木',
+        colour: '#FF6680',
+        custom: 'PROCEDURE',
         contents: []
       },
       {
@@ -2312,7 +2459,6 @@ export default function IDEPage() {
           ctx.restore();
         };
         img.src = costume.dataUrl;
-      },
       },
       onBroadcast: (message) => {
         // Handle broadcast messages

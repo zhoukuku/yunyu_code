@@ -7,7 +7,7 @@ const API_BASE_URL = (isElectron || import.meta.env.PROD)
   ? 'http://localhost:3000/api'  // Electron 或生产模式
   : '/api';  // 开发模式
 
-const request = axios.create({
+export const request = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
 });

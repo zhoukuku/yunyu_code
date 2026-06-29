@@ -83,7 +83,7 @@ export default function TeachingPage() {
     { title: '上课时间', dataIndex: 'classTime', key: 'classTime', render: t => t || '-' },
     { title: '学生数', dataIndex: 'studentNum', key: 'studentNum', render: n => `${n}人` },
     { title: '课程进度', key: 'progress', render: (_, r) => (
-      <Progress percent={Math.round(r.hadCourseNum / r.totalCourseNum * 100)} size="small" />
+      <Progress percent={r.totalCourseNum ? Math.round(r.hadCourseNum / r.totalCourseNum * 100) : 0} size="small" />
     )},
     { title: '状态', dataIndex: 'isEnd', key: 'isEnd', render: v => (
       <Tag color={v ? 'red' : 'green'}>{v ? '已结束' : '进行中'}</Tag>

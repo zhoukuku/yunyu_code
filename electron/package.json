@@ -1,0 +1,33 @@
+{
+  "name": "yunyu-learning-platform",
+  "version": "1.0.0",
+  "description": "云屿学习平台 - 编程教育桌面应用",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "keywords": [
+    "electron",
+    "scratch",
+    "python",
+    "cpp",
+    "education"
+  ],
+  "author": "云屿科技",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "file:electron-18.3.15.tgz",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.35.2",
+    "to-ico": "^1.1.5"
+  }
+}

@@ -8,6 +8,8 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const [classes, setClasses] = useState([]);
   const [notices, setNotices] = useState([]);
+  const [classCount, setClassCount] = useState(0);
+  const [noticeCount, setNoticeCount] = useState(0);
   const [userCount, setUserCount] = useState(0);
   const [courseCount, setCourseCount] = useState(0);
 
@@ -18,10 +20,18 @@ export default function AdminPage() {
       getAdminUsers(1, 1).catch(() => ({ status: 400, result: { total: 0 } })),
       getAdminCourses(null, {}).catch(() => ({ status: 400, result: { records: [] } })),
     ]).then(([c, n, u, cs]) => {
-      if (c.status === 200) setClasses((c.result?.records || []).slice(0, 5));
-      if (n.status === 200) setNotices((n.result?.records || []).slice(0, 5));
+      if (c.status === 200) {
+        const classList = c.result?.records || [];
+        setClasses(classList.slice(0, 5));
+        setClassCount(classList.length);
+      }
+      if (n.status === 200) {
+        const noticeList = n.result?.records || [];
+        setNotices(noticeList.slice(0, 5));
+        setNoticeCount(noticeList.length);
+      }
       if (u.status === 200) setUserCount(u.result?.total || 0);
-      if (cs.status === 200) setCourseCount(cs.result?.records?.length || 0);
+      if (cs.status === 200) setCourseCount(cs.result?.records?.length || cs.result?.total || 0);
     }).catch(console.error);
   }, []);
 
@@ -44,9 +54,9 @@ export default function AdminPage() {
     >
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} md={6}><Card><Statistic title="用户总数" value={userCount} prefix={<UserOutlined />} /></Card></Col>
-        <Col xs={24} sm={12} md={6}><Card><Statistic title="班级总数" value={classes.length} prefix={<TeamOutlined />} /></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card><Statistic title="班级总数" value={classCount} prefix={<TeamOutlined />} /></Card></Col>
         <Col xs={24} sm={12} md={6}><Card><Statistic title="课程总数" value={courseCount} prefix={<BookOutlined />} /></Card></Col>
-        <Col xs={24} sm={12} md={6}><Card><Statistic title="通知总数" value={notices.length} prefix={<BellOutlined />} /></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card><Statistic title="通知总数" value={noticeCount} prefix={<BellOutlined />} /></Card></Col>
       </Row>
       <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
         <Col xs={24} md={12}>

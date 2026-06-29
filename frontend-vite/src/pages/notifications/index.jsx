@@ -20,14 +20,15 @@ export default function NotificationsPage() {
     if (user) {
       const parsed = JSON.parse(user);
       setUserId(parsed.id);
+      fetchNotifications(parsed.id);
     }
-    fetchNotifications();
   }, []);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = async (uid) => {
+    const targetUserId = uid || userId;
     setLoading(true);
     try {
-      const res = await getNotices(userId);
+      const res = await getNotices(targetUserId);
       if (res.status === 200) {
         // Handle both array and paginated response { records: [] }
         const result = res.result;

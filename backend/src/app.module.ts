@@ -41,12 +41,18 @@ import { OrganizationsModule } from './organizations/organizations.module';
         limit: 100,
       },
     ]),
-    // 数据库配置 - 使用SQLite便于开发
+    // 数据库配置 - MySQL
     TypeOrmModule.forRoot({
-      type: 'sqlite',
-      database: 'database.sqlite',
+      type: 'mysql',
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '3306'),
+      username: process.env.DB_USERNAME || 'root',
+      password: process.env.DB_PASSWORD || 'root',
+      database: process.env.DB_DATABASE || 'yunyu_learning',
       entities: [__dirname + '/entities/*.entity{.ts,.js}', __dirname + '/search/*.entity{.ts,.js}'],
       synchronize: true, // 开发环境自动同步表结构
+      charset: 'utf8mb4',
+      timezone: '+08:00',
     }),
     AuthModule,
     SecurityModule,

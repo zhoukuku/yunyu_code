@@ -121,17 +121,45 @@ class LessonCodeExecutor {
 
     try {
       const jsCode = pythonToJS(code);
-      const contextKeys = ['int', 'float', 'str', 'bool', 'list', 'dict', ...Object.keys(safeBuiltins)];
-      const contextValues = ['int', 'float', 'str', 'bool', 'list', 'dict', ...Object.values(safeBuiltins)];
+      // Build deduplicated parameter list to avoid "Duplicate parameter name" in strict mode
+      const rawContextKeys = Object.keys(safeBuiltins);
+      const rawContextValues = Object.values(safeBuiltins);
       const mathKeys = Object.keys(mathNamespace);
       const mathValues = Object.values(mathNamespace);
 
+      // Deduplicate: builtins first, then math
+      const allParamNames = [];
+      const allParamValues = [];
+      const seen = new Set();
+
+      for (let i = 0; i < rawContextKeys.length; i++) {
+        if (!seen.has(rawContextKeys[i])) {
+          seen.add(rawContextKeys[i]);
+          allParamNames.push(rawContextKeys[i]);
+          allParamValues.push(rawContextValues[i]);
+        }
+      }
+      // Track which math keys survived dedup
+      const mathSurvivedIndices = [];
+      for (let i = 0; i < mathKeys.length; i++) {
+        if (!seen.has(mathKeys[i])) {
+          seen.add(mathKeys[i]);
+          mathSurvivedIndices.push(i);
+          allParamNames.push(mathKeys[i]);
+          allParamValues.push(mathValues[i]);
+        }
+      }
+
+      // Build math object with surviving keys
+      const mathObjEntries = mathSurvivedIndices.map(i => mathKeys[i]).join(', ');
+      const mathObjCode = mathObjEntries ? `const __math = {${mathObjEntries}};` : 'const __math = {};';
+
       const fn = new Function(
-        ...contextKeys, ...mathKeys, '__print',
-        `"use strict"; return (async () => { try { ${jsCode} } catch (__py_error) { throw new Error(\`Python执行错误: \${__py_error.message}\`); } })()`
+        ...allParamNames, '__print',
+        `"use strict"; ${mathObjCode} return (async () => { try { ${jsCode} } catch (__py_error) { throw new Error(\`Python执行错误: \${__py_error.message}\`); } })()`
       );
 
-      await fn(...contextValues, ...mathValues, (...args) => this.log(args.map(a => this._formatValue(a)).join(' ')));
+      await fn(...allParamValues, (...args) => this.log(args.map(a => this._formatValue(a)).join(' ')));
       this.log('\n=== 执行完成 ===', 'info');
     } catch (e) {
       this.error(`\n=== 执行错误 ===\n${e.message}`);

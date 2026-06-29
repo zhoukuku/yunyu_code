@@ -26,8 +26,8 @@ export class UserCourse {
   @Column({ default: 0 })
   completedLessons: number;
 
-  @Column({ default: 0 })
-  lastLessonId: number;
+  @Column({ nullable: true, default: null })
+  lastLessonId: number | null;
 
   @Column({ default: 0 })
   status: number; // 1: enrolled, 0: dropped
