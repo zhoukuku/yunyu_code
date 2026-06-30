@@ -1,22 +1,24 @@
 @echo off
+chcp 65001 >nul
 echo ============================================
-echo   云屿学习平台
+echo   Yunyu Learning Platform
 echo ============================================
 echo.
-echo 请确保 MySQL 已启动 (端口3306, root/root)
+echo Make sure MySQL is running (port 3306, root/root)
 echo.
 
-echo [1/3] 启动后端 (端口3000)...
-start "后端" cmd /c "cd /d e:\k\meee\code\project01\backend && npm run start:dev"
+echo [1/3] Starting backend (port 3000)...
+start "Backend" cmd /c "cd /d e:\k\meee\code\project01\backend && npm run start:dev"
 
-echo [2/3] 启动前端 (Electron模式, 端口5174)...
-start "前端" cmd /c "cd /d e:\k\meee\code\project01\frontend-vite && set ELECTRON=true && npm run dev"
+echo [2/3] Starting frontend (Electron mode, port 5174)...
+start "Frontend" cmd /c "cd /d e:\k\meee\code\project01\frontend-vite && set ELECTRON=true && npm run dev"
 
-echo [3/3] 启动Electron桌面应用...
-timeout /t 10 /nobreak >nul
+echo [3/3] Starting Electron app...
+timeout /t 12 /nobreak >nul
 start "Electron" cmd /c "cd /d e:\k\meee\code\project01\electron && npx electron ."
 
 echo.
-echo 应用正在启动，请稍候...
+echo App is starting, please wait...
+echo Login: admin / admin123
 echo.
 pause
