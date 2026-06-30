@@ -28,9 +28,17 @@ async function bootstrap() {
     next();
   });
 
-  // 3) CORS 配置 - 限制性更强的配置
+  // 3) CORS 配置 - 允许多种开发模式
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    origin: function (origin, callback) {
+      // 允许 localhost 任意端口、Electron file:// 协议、以及配置的 CORS_ORIGIN
+      const allowed = !origin || origin.startsWith('http://localhost:') || origin.startsWith('file://') || origin === process.env.CORS_ORIGIN;
+      if (allowed) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
