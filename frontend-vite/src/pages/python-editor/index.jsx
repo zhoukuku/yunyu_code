@@ -11,6 +11,7 @@ import {
   executeCode, deleteCodeExecution, getCodeExecutionStats,
   getProjects, createProject, updateProject, deleteProject
 } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -20,7 +21,6 @@ import { tags } from '@lezer/highlight';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 
 const { TextArea } = Input;
-const { TabPane } = Tabs;
 
 // ============================================================================
 // Enhanced Python Function Definitions
@@ -218,7 +218,8 @@ export const editorFeatures = {
 // ============================================================================
 
 // Custom Python highlight style matching VS Code Dark+ theme
-const pythonHighlightStyle = HighlightStyle.define([
+// Some tags may not exist in older @lezer/highlight versions, filter them out
+const allTagSpecs = [
   { tag: tags.keyword, color: '#569cd6', fontWeight: 'bold' },
   { tag: tags.controlKeyword, color: '#569cd6', fontWeight: 'bold' },
   { tag: tags.operatorKeyword, color: '#569cd6' },
@@ -228,37 +229,30 @@ const pythonHighlightStyle = HighlightStyle.define([
   { tag: tags.bool, color: '#569cd6' },
   { tag: tags.null, color: '#569cd6' },
   { tag: tags.builtin, color: '#4ec9b0' },
-  { tag: tags.standardLibrary, color: '#4ec9b0' },
   { tag: tags.typeName, color: '#4ec9b0' },
   { tag: tags.className, color: '#4ec9b0' },
   { tag: tags.string, color: '#ce9178' },
-  { tag: tags.special(tags.string), color: '#ce9178' },
+  { tag: tags.special && tags.special(tags.string), color: '#ce9178' },
   { tag: tags.regexp, color: '#ce9178' },
   { tag: tags.number, color: '#b5cea8' },
-  { tag: tags.integer, color: '#b5cea8' },
-  { tag: tags.float, color: '#b5cea8' },
   { tag: tags.comment, color: '#6a9955', fontStyle: 'italic' },
   { tag: tags.lineComment, color: '#6a9955', fontStyle: 'italic' },
   { tag: tags.blockComment, color: '#6a9955', fontStyle: 'italic' },
-  { tag: tags.docComment, color: '#6a9955', fontStyle: 'italic' },
-  { tag: tags.function(tags.variableName), color: '#dcdcaa' },
-  { tag: tags.function(tags.propertyName), color: '#dcdcaa' },
-  { tag: tags.definition(tags.function(tags.variableName)), color: '#dcdcaa' },
   { tag: tags.variableName, color: '#9cdcfe' },
-  { tag: tags.local(tags.variableName), color: '#9cdcfe' },
   { tag: tags.propertyName, color: '#9cdcfe' },
   { tag: tags.operator, color: '#d4d4d4' },
   { tag: tags.punctuation, color: '#d4d4d4' },
-  { tag: tags.bracket, color: '#d4d4d4' },
-  { tag: tags.paren, color: '#d4d4d4' },
-  { tag: tags.squareBracket, color: '#d4d4d4' },
-  { tag: tags.angleBracket, color: '#d4d4d4' },
-  { tag: tags.decorator, color: '#d7ba7d' },
   { tag: tags.meta, color: '#d4d4d4' },
-  { tag: tags.escape, color: '#d7ba7d' },
-  { tag: tags.self, color: '#569cd6' },
   { tag: tags.namespace, color: '#4ec9b0' },
-]);
+].filter(function(s) { return s.tag != null; });
+
+let pythonHighlightStyle;
+try {
+  pythonHighlightStyle = HighlightStyle.define(allTagSpecs);
+} catch(e) {
+  console.warn('HighlightStyle.define failed, using default:', e.message);
+  pythonHighlightStyle = defaultHighlightStyle;
+}
 
 // Dark theme for CodeMirror
 const darkTheme = EditorView.theme({
@@ -354,8 +348,162 @@ const darkTheme = EditorView.theme({
   },
 }, { dark: true });
 
+// Light theme for CodeMirror
+const lightTheme = EditorView.theme({
+  '&': {
+    backgroundColor: '#ffffff',
+    color: '#000000',
+    height: '100%',
+  },
+  '.cm-content': {
+    fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+    caretColor: '#000',
+    padding: '12px 0',
+  },
+  '.cm-cursor': {
+    borderLeftColor: '#000',
+    borderLeftWidth: '2px',
+  },
+  '.cm-activeLine': {
+    backgroundColor: '#f0f0f0',
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: '#f0f0f0',
+  },
+  '.cm-gutters': {
+    backgroundColor: '#f5f5f5',
+    color: '#6e6e6e',
+    border: 'none',
+    paddingRight: '8px',
+  },
+  '.cm-lineNumbers .cm-gutterElement': {
+    padding: '0 8px 0 16px',
+    minWidth: '40px',
+  },
+  '.cm-foldPlaceholder': {
+    backgroundColor: '#e0e0e0',
+    border: 'none',
+    color: '#666',
+  },
+  '.cm-tooltip': {
+    backgroundColor: '#ffffff',
+    border: '1px solid #ccc',
+    borderRadius: '4px',
+    color: '#000',
+  },
+  '.cm-tooltip-autocomplete': {
+    '& > ul > li[aria-selected]': {
+      backgroundColor: '#e8e8e8',
+    },
+  },
+  '.cm-selectionBackground': {
+    backgroundColor: '#add6ff !important',
+  },
+  '&.cm-focused .cm-selectionBackground': {
+    backgroundColor: '#add6ff !important',
+  },
+  '.cm-searchMatch': {
+    backgroundColor: '#f5f5dc',
+  },
+  '.cm-searchMatch.cm-searchMatch-selected': {
+    backgroundColor: '#ff9632',
+  },
+  '.cm-panels': {
+    backgroundColor: '#ffffff',
+    color: '#000',
+  },
+  '.cm-panel.cm-search': {
+    padding: '8px',
+    borderTop: '1px solid #ccc',
+  },
+  '.cm-panel.cm-search input': {
+    backgroundColor: '#f0f0f0',
+    border: '1px solid #ccc',
+    color: '#000',
+    borderRadius: '2px',
+    padding: '2px 6px',
+  },
+  '.cm-panel.cm-search button': {
+    backgroundColor: '#e0e0e0',
+    border: '1px solid #ccc',
+    color: '#000',
+    borderRadius: '2px',
+    padding: '2px 8px',
+    marginLeft: '4px',
+  },
+  '.cm-panel.cm-search label': {
+    color: '#000',
+  },
+  '.cm-line': {
+    padding: '0 12px',
+  },
+  '.cm-scroller': {
+    overflow: 'auto',
+    fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+  },
+}, { dark: false });
+
+// Python-specific autocomplete source for CodeMirror
+const pythonCompletionSource = (context) => {
+  const word = context.matchBefore(/\w*/);
+  if (!word || (word.from === word.to && !context.explicit)) return null;
+
+  const prefix = word.text.toLowerCase();
+  const options = [];
+
+  // Python keywords
+  for (const kw of autoCompletionItems.keywords) {
+    if (kw.toLowerCase().startsWith(prefix)) {
+      options.push({ label: kw, type: 'keyword', boost: 2 });
+    }
+  }
+
+  // Python builtins
+  for (const b of autoCompletionItems.builtins) {
+    if (b.toLowerCase().startsWith(prefix)) {
+      options.push({ label: b, type: 'function', detail: pythonFunctions[b] || `${b}()`, boost: 1 });
+    }
+  }
+
+  // Check if we're in an import context for library name completions
+  const line = context.state.doc.lineAt(word.from);
+  const lineText = line.text.trimStart();
+  const importLibMatch = lineText.match(/^(?:import|from)\s+(\w*)$/);
+  if (importLibMatch) {
+    for (const lib of Object.keys(autoCompletionItems.libraries)) {
+      if (lib.toLowerCase().startsWith(prefix)) {
+        options.push({ label: lib, type: 'module', detail: librariesSupported[lib]?.description || '', boost: 3 });
+      }
+    }
+  }
+
+  // Check if we're in from X import Y context for member completions
+  const fromImportMatch = lineText.match(/^from\s+(\w+)\s+import\s+[\w,\s]*(\w*)$/);
+  if (fromImportMatch) {
+    const libName = fromImportMatch[1];
+    const libFunctions = autoCompletionItems.libraries[libName];
+    if (libFunctions) {
+      for (const fn of libFunctions) {
+        if (fn.toLowerCase().startsWith(prefix)) {
+          options.push({ label: fn, type: 'function', detail: `${libName}.${fn}()`, boost: 3 });
+        }
+      }
+    }
+  }
+
+  // Deduplicate by label
+  const seen = new Set();
+  const unique = options.filter((o) => {
+    if (seen.has(o.label)) return false;
+    seen.add(o.label);
+    return true;
+  });
+
+  return unique.length > 0 ? { from: word.from, options: unique, filter: false } : null;
+};
+
 // CodeMirror Editor Component
-const CodeMirrorEditor = ({ value, onChange, fontSize = 14, onRun }) => {
+const CodeMirrorEditor = ({ value, onChange, fontSize = 14, onRun, theme = 'dark' }) => {
   const editorRef = useRef(null);
   const viewRef = useRef(null);
   const containerRef = useRef(null);
@@ -398,8 +546,8 @@ const CodeMirrorEditor = ({ value, onChange, fontSize = 14, onRun }) => {
         history(),
         python(),
         syntaxHighlighting(pythonHighlightStyle),
-        darkTheme,
-        autocompletion(),
+        theme === 'dark' ? darkTheme : lightTheme,
+        autocompletion({ override: [pythonCompletionSource] }),
         keymap.of([
           ...defaultKeymap,
           ...historyKeymap,
@@ -813,8 +961,8 @@ class TurtleGraphics {
     this.onUpdate = onUpdate;
 
     // Turtle state
-    this.x = canvas?.width / 2 || 200;
-    this.y = canvas?.height / 2 || 200;
+    this.x = (canvas?.width ?? 400) / 2;
+    this.y = (canvas?.height ?? 400) / 2;
     this.heading = 0; // 0 = east (right), 90 = north (up)
     this.penDown = true;
     this.penColor = '#000000';
@@ -838,8 +986,8 @@ class TurtleGraphics {
   }
 
   reset() {
-    this.x = this.canvas?.width / 2 || 200;
-    this.y = this.canvas?.height / 2 || 200;
+    this.x = (this.canvas?.width ?? 400) / 2;
+    this.y = (this.canvas?.height ?? 400) / 2;
     this.heading = 0;
     this.penDown = true;
     this.penColor = '#000000';
@@ -857,6 +1005,7 @@ class TurtleGraphics {
     }
     this._history = [];
     this._fillPath = [];
+    this._redraw();
   }
 
   drawGrid() {
@@ -1155,30 +1304,6 @@ class TurtleGraphics {
     }
   }
 
-  clear() {
-    if (this.ctx && this.canvas) {
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      this.drawGrid();
-    }
-    this._history = [];
-    this._fillPath = [];
-    this._redraw();
-  }
-
-  reset() {
-    this.x = this.canvas?.width / 2 || 200;
-    this.y = this.canvas?.height / 2 || 200;
-    this.heading = 0;
-    this.penDown = true;
-    this.penColor = '#000000';
-    this.penSize = 1;
-    this._fillPath = [];
-    this._isFilling = false;
-    this._visible = true;
-    this._history = [];
-    this.clear();
-  }
-
   showturtle() {
     this._visible = true;
     this._redraw();
@@ -1292,16 +1417,16 @@ class PythonCodeExecutor {
     if (typeof v === 'boolean') return v ? 'True' : 'False';
     if (typeof v === 'string') return v;
     if (Array.isArray(v)) {
-      return '[' + v.map(x => this._formatValue(x)).join(', ') + ']';
+      return `[${v.map(x => this._formatValue(x)).join(', ')}]`;
     }
     if (typeof v === 'object') {
       if (v.constructor?.name === 'Object' || Object.getPrototypeOf(v) === Object.prototype) {
         const entries = Object.entries(v);
-        return '{' + entries.map(([k, val]) => `${this._formatValue(k)}: ${this._formatValue(val)}`).join(', ') + '}';
+        return `{${entries.map(([k, val]) => `${this._formatValue(k)}: ${this._formatValue(val)}`).join(', ')}}`;
       }
       // For custom objects
       const entries = Object.entries(v);
-      return '{' + entries.map(([k, val]) => `${k}: ${this._formatValue(val)}`).join(', ') + '}';
+      return `{${entries.map(([k, val]) => `${k}: ${this._formatValue(val)}`).join(', ')}}`;
     }
     if (typeof v === 'number') {
       if (!Number.isFinite(v)) return String(v);
@@ -1388,7 +1513,7 @@ class PythonCodeExecutor {
       all: (arr) => arr && arr.every(x => Boolean(x)),
       next: (it, defaultVal) => { const val = it?.next?.(); return val?.done ? defaultVal : val?.value; },
       iter: (obj) => { if (Array.isArray(obj)) return obj[Symbol.iterator](); return obj; },
-      slice: (start, stop, step) => ({ start: start || 0, stop: stop, step: step || 1 }),
+      slice: (start, stop, step) => ({ start: start ?? 0, stop: stop, step: step ?? 1 }),
 
       abs: Math.abs,
       min: (...args) => { if (args.length === 0) return Infinity; if (args.length === 1 && Array.isArray(args[0])) return Math.min(...args[0]); return Math.min(...args); },
@@ -1400,12 +1525,12 @@ class PythonCodeExecutor {
 
       chr: (n) => String.fromCharCode(n),
       ord: (c) => c.charCodeAt(0),
-      hex: (n) => '0x' + Math.abs(Math.floor(n)).toString(16),
-      oct: (n) => '0o' + Math.abs(Math.floor(n)).toString(8),
-      bin: (n) => '0b' + Math.abs(Math.floor(n)).toString(2),
+      hex: (n) => `0x${Math.abs(Math.floor(n)).toString(16)}`,
+      oct: (n) => `0o${Math.abs(Math.floor(n)).toString(8)}`,
+      bin: (n) => `0b${Math.abs(Math.floor(n)).toString(2)}`,
 
       repr: (x) => JSON.stringify(x),
-      ascii: (x) => JSON.stringify(x).replace(/[-￿]/g, (m) => '\\u' + m.charCodeAt(0).toString(16).padStart(4, '0')),
+      ascii: (x) => JSON.stringify(x).replace(/[-￿]/g, (m) => `\\u${m.charCodeAt(0).toString(16).padStart(4, '0')}`),
       format: (val, fmt) => {
         try {
           if (fmt) {
@@ -1729,7 +1854,7 @@ class PythonCodeExecutor {
       strptime: (str, fmt) => {
         // Simple strptime - parse ISO format
         const d = new Date(str);
-        if (isNaN(d.getTime())) throw new Error(f`Invalid datetime: ${str}`);
+        if (isNaN(d.getTime())) throw new Error(`Invalid datetime: ${str}`);
         return DateTime.fromJSDate(d);
       },
       max: new DateTime(9999, 12, 31, 23, 59, 59),
@@ -1807,7 +1932,7 @@ class PythonCodeExecutor {
     // Collections library
     // ============================================================================
     const collectionsNamespace = {
-      Counter: (arr) => { const c = {}; (arr || []).forEach(x => { c[x] = (c[x] || 0) + 1; }); return { ...c, most_common: (n) => Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, n || 10) }; },
+      Counter: (arr) => { const c = {}; (arr || []).forEach(x => { c[x] = (c[x] || 0) + 1; }); return { ...c, most_common: (n) => Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, n) }; },
       deque: function(arr = [], maxlen = null) {
         const array = [...arr];
         return {
@@ -1849,12 +1974,12 @@ class PythonCodeExecutor {
       accumulate: function* (arr, fn = (a, b) => a + b) { let acc = arr[0] || 0; yield acc; for (let i = 1; i < arr.length; i++) { acc = fn(acc, arr[i]); yield acc; } },
       chain: function* (...arrs) { for (const arr of arrs) for (const x of arr) yield x; },
       compress: function* (data, selectors) { let i = 0; for (const d of data) { if (selectors[i++]) yield d; } },
-      islice: function* (arr, start, stop, step = 1) { const a = arr || []; const s = start || 0; const e = stop || a.length; for (let i = s; i < e; i += step) yield a[i]; },
+      islice: function* (arr, start, stop, step = 1) { const a = arr || []; const s = start ?? 0; const e = stop ?? a.length; for (let i = s; i < e; i += step) yield a[i]; },
       takewhile: function* (fn, arr) { for (const x of arr || []) { if (!fn(x)) break; yield x; } },
       dropwhile: function* (fn, arr) { let dropping = true; for (const x of arr || []) { if (!dropping || !fn(x)) { dropping = false; yield x; } } },
       filterfalse: function* (fn, arr) { for (const x of arr || []) { if (!fn(x)) yield x; } },
       groupby: function* (arr, key = x => x) { const groups = {}; for (const x of arr || []) { const k = key(x); if (!groups[k]) groups[k] = []; groups[k].push(x); } for (const [k, v] of Object.entries(groups)) yield [k, v]; },
-      product: (...arrs) => { const result = [[]]; for (const arr of arrs) { const newResult = []; for (const r of result) for (const x of arr) newResult.push([...r, x]); result = newResult; } return result; },
+      product: (...arrs) => { let result = [[]]; for (const arr of arrs) { const newResult = []; for (const r of result) for (const x of arr) newResult.push([...r, x]); result = newResult; } return result; },
       permutations: (arr, r = null) => { const a = arr || []; const n = r !== null ? r : a.length; const result = []; function perm(curr, remaining) { if (curr.length === n) { result.push([...curr]); return; } for (let i = 0; i < remaining.length; i++) { curr.push(remaining[i]); perm(curr, remaining.slice(0, i).concat(remaining.slice(i + 1))); curr.pop(); } } perm([], a); return result; },
       combinations: (arr, r) => { const a = arr || []; const result = []; function comb(start, combo) { if (combo.length === r) { result.push([...combo]); return; } for (let i = start; i < a.length; i++) { combo.push(a[i]); comb(i + 1, combo); combo.pop(); } } comb(0, []); return result; },
       combinations_with_replacement: (arr, r) => { const a = arr || []; const result = []; function comb(start, combo) { if (combo.length === r) { result.push([...combo]); return; } for (let i = start; i < a.length; i++) { combo.push(a[i]); comb(i, combo); combo.pop(); } } comb(0, []); return result; },
@@ -2166,7 +2291,7 @@ class PythonCodeExecutor {
       // Use safeBuiltins properties directly (not bare identifiers which are undefined)
       const bi = safeBuiltins;
       const allNamespaces = [
-        { keys: ['int', 'float', 'str', 'bool', 'list', 'dict', 'set', 'tuple', 'frozenset', 'bytes', 'bytearray', 'complex', 'range', 'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter', 'any', 'all', 'next', 'iter', 'slice', 'abs', 'min', 'max', 'sum', 'round', 'pow', 'divmod', 'chr', 'ord', 'hex', 'oct', 'bin', 'repr', 'ascii', 'format', 'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr', 'delattr', 'id', 'hash', 'callable', 'dir', 'vars', 'help', 'exit', 'quit'], vals: [bi.int, bi.float, bi.str, bi.bool, bi.list, bi.dict, bi.set, bi.tuple, bi.frozenset, bi.bytes, bi.bytearray, bi.complex, bi.range, bi.sorted, bi.reversed, bi.enumerate, bi.zip, bi.map, bi.filter, bi.any, bi.all, bi.next, bi.iter, bi.slice, bi.abs, bi.min, bi.max, bi.sum, bi.round, bi.pow, bi.divmod, bi.chr, bi.ord, bi.hex, bi.oct, bi.bin, bi.repr, bi.ascii, bi.format, bi.isinstance, bi.issubclass, bi.hasattr, bi.getattr, bi.setattr, bi.delattr, bi.id, bi.hash, bi.callable, bi.dir, bi.vars, bi.help, bi.exit, bi.quit] },
+        { keys: ['int', 'float', 'len', 'str', 'bool', 'list', 'dict', 'set', 'tuple', 'frozenset', 'bytes', 'bytearray', 'complex', 'type', 'range', 'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter', 'any', 'all', 'next', 'iter', 'slice', 'abs', 'min', 'max', 'sum', 'round', 'pow', 'divmod', 'chr', 'ord', 'hex', 'oct', 'bin', 'repr', 'ascii', 'format', 'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr', 'delattr', 'id', 'hash', 'callable', 'dir', 'vars', 'help', 'exit', 'quit'], vals: [bi.int, bi.float, bi.len, bi.str, bi.bool, bi.list, bi.dict, bi.set, bi.tuple, bi.frozenset, bi.bytes, bi.bytearray, bi.complex, bi.type, bi.range, bi.sorted, bi.reversed, bi.enumerate, bi.zip, bi.map, bi.filter, bi.any, bi.all, bi.next, bi.iter, bi.slice, bi.abs, bi.min, bi.max, bi.sum, bi.round, bi.pow, bi.divmod, bi.chr, bi.ord, bi.hex, bi.oct, bi.bin, bi.repr, bi.ascii, bi.format, bi.isinstance, bi.issubclass, bi.hasattr, bi.getattr, bi.setattr, bi.delattr, bi.id, bi.hash, bi.callable, bi.dir, bi.vars, bi.help, bi.exit, bi.quit] },
         { keys: Object.keys(mathNamespace), vals: Object.values(mathNamespace) },
         { keys: Object.keys(randomNamespace), vals: Object.values(randomNamespace) },
         { keys: ['date', 'datetime', 'time', 'timedelta', 'now', 'utcnow', 'today', 'fromtimestamp', 'strptime'], vals: [Date, DateTime, Time, TimeDelta, datetimeNamespace.now, datetimeNamespace.utcnow, datetimeNamespace.today, datetimeNamespace.fromtimestamp, datetimeNamespace.strptime] },
@@ -2288,6 +2413,7 @@ const PythonEditor = () => {
   const [inputResolve, setInputResolve] = useState(null);
   const [showTurtle, setShowTurtle] = useState(false);
   const [turtleCanvasSize, setTurtleCanvasSize] = useState({ width: 500, height: 400 });
+  const [theme, setTheme] = useState('dark');
 
   const executorRef = useRef(null);
   const codeRef = useRef(code);
@@ -2364,8 +2490,7 @@ const PythonEditor = () => {
 
   const handleSaveToCloud = async () => {
     try {
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const user = safeGetJSON('user');
 
       if (currentProjectId) {
         await updateProject(currentProjectId, {
@@ -2395,8 +2520,7 @@ const PythonEditor = () => {
 
   const handleLoadProjects = async () => {
     try {
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const user = safeGetJSON('user');
 
       const projects = await getProjects(user?.id);
       const pythonProjects = Array.isArray(projects)
@@ -2516,6 +2640,13 @@ const PythonEditor = () => {
               { value: 20, label: '20px' },
             ]}
           />
+          <Tooltip title={theme === 'dark' ? '切换浅色主题' : '切换深色主题'}>
+            <Button
+              icon={<BgColorsOutlined />}
+              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+              size="small"
+            />
+          </Tooltip>
         </Space>
 
         <Space>
@@ -2525,13 +2656,13 @@ const PythonEditor = () => {
           <Button icon={<SaveOutlined />} onClick={() => setShowSaveModal(true)}>
             保存
           </Button>
-          <Dropdown overlay={
-            <Space direction="vertical" style={{ padding: 8 }}>
-              <Button icon={<CopyOutlined />} onClick={handleCopyCode}>复制代码</Button>
-              <Button icon={<FormatPainterOutlined />} onClick={handleFormatCode}>格式化</Button>
-              <Button icon={<DownloadOutlined />} onClick={handleDownloadCode}>下载.py文件</Button>
-            </Space>
-          }>
+          <Dropdown menu={{
+            items: [
+              { key: 'copy', label: '复制代码', icon: <CopyOutlined />, onClick: handleCopyCode },
+              { key: 'format', label: '格式化', icon: <FormatPainterOutlined />, onClick: handleFormatCode },
+              { key: 'download', label: '下载.py文件', icon: <DownloadOutlined />, onClick: handleDownloadCode },
+            ]
+          }}>
             <Button icon={<EditOutlined />}>更多</Button>
           </Dropdown>
         </Space>
@@ -2541,8 +2672,8 @@ const PythonEditor = () => {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Editor panel */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #444', position: 'relative' }}>
-          <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ height: '100%' }}>
-            <TabPane tab="编辑器" key="editor" style={{ height: '100%' }}>
+          <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ height: '100%' }} items={[
+            { key: 'editor', label: '编辑器', children: (
               <div style={{ flex: 1, position: 'relative', height: '100%' }}>
                 {/* CodeMirror Editor with Python Syntax Highlighting */}
                 <CodeMirrorEditor
@@ -2550,10 +2681,11 @@ const PythonEditor = () => {
                   onChange={setCode}
                   fontSize={fontSize}
                   onRun={handleRun}
+                  theme={theme}
                 />
               </div>
-            </TabPane>
-            <TabPane tab="历史记录" key="history">
+            )},
+            { key: 'history', label: '历史记录', children: (
               <div style={{ padding: 16 }}>
                 <Space direction="vertical" style={{ width: '100%' }}>
                   <Button type="primary" icon={<PlusOutlined />} onClick={handleNewProject} block>
@@ -2586,8 +2718,8 @@ const PythonEditor = () => {
                   )}
                 </Space>
               </div>
-            </TabPane>
-            <TabPane tab="库帮助" key="libs">
+            )},
+            { key: 'libs', label: '库帮助', children: (
               <div style={{ padding: 16, overflow: 'auto', height: '100%' }}>
                 <Space direction="vertical" style={{ width: '100%' }} size="middle">
                   {Object.entries(librariesSupported).map(([name, lib]) => (
@@ -2620,8 +2752,8 @@ const PythonEditor = () => {
                   ))}
                 </Space>
               </div>
-            </TabPane>
-          </Tabs>
+            )},
+          ]} />
         </div>
 
         {/* Turtle Canvas Panel */}
