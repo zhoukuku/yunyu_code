@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Table, Button, Tag, Progress, Space, Modal, Form, Input, message, Popconfirm } from 'antd';
 import { PlusOutlined, TeamOutlined, PlayCircleOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getClasses, createClass, updateClass, deleteClass } from '../../services/api';
+import { safeGetItem } from '../../utils/storage';
 
 export default function TeachingPage() {
   const navigate = useNavigate();
@@ -12,20 +13,11 @@ export default function TeachingPage() {
   const [editingClass, setEditingClass] = useState(null);
   const [form] = Form.useForm();
 
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      window.location.href = '/login';
-      return;
-    }
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getClasses();
-      if (res.status === 200) {
+      if (res && res.status === 200) {
         setClasses(res.result?.records || []);
       }
     } catch (e) {
@@ -33,7 +25,16 @@ export default function TeachingPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const token = safeGetItem('accessToken');
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
+    loadData();
+  }, [loadData]);
 
   const handleAdd = () => {
     setEditingClass(null);

@@ -1,71 +1,80 @@
 @echo off
-REM 数据库恢复脚本 - restore.bat
-REM 用法: 双击运行或从命令行执行
+REM Database restore script - restore.bat
+REM Usage: double-click or run from command line
 REM
-REM 恢复流程:
-REM 1. 备份当前数据库(如果存在)
-REM 2. 从备份文件恢复数据库
+REM Restore process:
+REM 1. Backup current database (if exists)
+REM 2. Restore database from backup file
 
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 set "DB_FILE=%SCRIPT_DIR%database.sqlite"
 set "BACKUP_DIR=%SCRIPT_DIR%backups"
-set "TIMESTAMP=%date:~0,4%%date:~5,2%%date:~8,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
-set "TIMESTAMP=%TIMESTAMP: =0%"
+
+REM Generate locale-independent timestamp via WMIC
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "LOCALDATETIME=%%I"
+if defined LOCALDATETIME (
+    set "TIMESTAMP=!LOCALDATETIME:~0,8!_!LOCALDATETIME:~8,6!"
+) else (
+    REM Fallback: use PowerShell for timestamp
+    for /f "delims=" %%I in ('powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd_HHmmss'" 2^>nul') do set "TIMESTAMP=%%I"
+)
+if not defined TIMESTAMP set "TIMESTAMP=unknown"
+
 set "BACKUP_FILE="
 
-REM 查找最新备份文件
+REM Find the most recent backup file
 for /f "delims=" %%i in ('dir /b /o-d "%BACKUP_DIR%\*.sqlite" 2^>nul') do (
     if not defined BACKUP_FILE set "BACKUP_FILE=%BACKUP_DIR%\%%i"
 )
 
 echo ========================================
-echo         数据库恢复脚本
+echo         Database Restore Script
 echo ========================================
 echo.
 
-REM 检查备份目录
+REM Check backup directory
 if not exist "%BACKUP_DIR%" (
-    echo [错误] 备份目录不存在: %BACKUP_DIR%
-    echo 请先运行 backup.bat 创建备份
+    echo [ERROR] Backup directory does not exist: %BACKUP_DIR%
+    echo Please run backup.bat first to create a backup.
     pause
     exit /b 1
 )
 
-REM 检查备份文件
+REM Check backup file
 if not defined BACKUP_FILE (
-    echo [错误] 未找到备份文件
+    echo [ERROR] No backup file found in: %BACKUP_DIR%
     pause
     exit /b 1
 )
 
-echo 找到备份文件: %BACKUP_FILE%
+echo Found backup file: %BACKUP_FILE%
 echo.
 
-REM 备份当前数据库(如果存在)
+REM Backup current database (if exists)
 if exist "%DB_FILE%" (
-    echo 正在备份当前数据库...
+    echo Backing up current database...
     if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
     copy /y "%DB_FILE%" "%BACKUP_DIR%\current_before_restore_%TIMESTAMP%.sqlite" >nul
-    echo 已保存当前数据库到: current_before_restore_%TIMESTAMP%.sqlite
+    echo Saved current database to: current_before_restore_%TIMESTAMP%.sqlite
     echo.
 )
 
-REM 恢复数据库
-echo 正在恢复数据库...
+REM Restore database
+echo Restoring database...
 copy /y "%BACKUP_FILE%" "%DB_FILE%" >nul
 
 if exist "%DB_FILE%" (
     echo.
     echo ========================================
-    echo         数据库恢复成功!
+    echo         Database Restored Successfully!
     echo ========================================
-    echo 恢复文件: %BACKUP_FILE%
-    echo 目标位置: %DB_FILE%
+    echo Restored from: %BACKUP_FILE%
+    echo Target:        %DB_FILE%
 ) else (
     echo.
-    echo [错误] 数据库恢复失败
+    echo [ERROR] Database restore failed
     pause
     exit /b 1
 )

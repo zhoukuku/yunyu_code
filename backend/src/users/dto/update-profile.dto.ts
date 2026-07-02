@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, IsEmail, MinLength, MaxLength } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsEmail, IsNotEmpty, MinLength, MaxLength, Matches } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class UpdateProfileDto {
@@ -24,12 +24,15 @@ export class UpdateProfileDto {
 
 export class ChangePasswordDto {
   @IsString()
-  @MinLength(6)
+  @IsNotEmpty({ message: '原密码不能为空' })
+  @MinLength(8, { message: '原密码至少8个字符' })
   oldPassword: string;
 
   @IsString()
-  @MinLength(6)
+  @IsNotEmpty({ message: '新密码不能为空' })
+  @MinLength(8, { message: '新密码至少8个字符' })
   @MaxLength(32)
+  @Matches(/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, { message: '新密码必须包含大小写字母和数字' })
   newPassword: string;
 }
 
@@ -39,8 +42,9 @@ export class ResetPasswordDto {
   email: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(8, { message: '新密码至少8个字符' })
   @MaxLength(32)
+  @Matches(/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, { message: '新密码必须包含大小写字母和数字' })
   newPassword: string;
 
   @IsString()

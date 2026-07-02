@@ -6,6 +6,18 @@ import { getCourseDetail, getCourseLessons } from '@/services/api';
 import type { CourseDetail, Lesson } from '@/services/types';
 import './index.less';
 
+// Safe localStorage helpers
+function safeGetJSON<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    return JSON.parse(raw);
+  } catch (e) { return fallback; }
+}
+function safeSetJSON(key: string, value: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* Swallow */ }
+}
+
 const difficultyText = ['', '入门', '简单', '中等', '困难', '专家'];
 const difficultyColor = ['', 'green', 'cyan', 'blue', 'orange', 'red'];
 
@@ -34,7 +46,7 @@ export default function CourseDetailPage() {
         setCourse(courseRes.result);
         setLessons(courseRes.result.lessons || []);
         // Check if user is already enrolled (has completed lessons > 0 or enrolled in localStorage)
-        const enrolledCourses = JSON.parse(localStorage.getItem('enrolledCourses') || '[]');
+        const enrolledCourses = safeGetJSON<number[]>('enrolledCourses', []);
         setEnrolled(enrolledCourses.includes(Number(id)) || courseRes.result.completedLessons > 0);
       } else {
         message.error('课程不存在');
@@ -49,10 +61,10 @@ export default function CourseDetailPage() {
 
   const handleEnroll = () => {
     // Add to enrolled courses in localStorage
-    const enrolledCourses = JSON.parse(localStorage.getItem('enrolledCourses') || '[]');
+    const enrolledCourses = safeGetJSON<number[]>('enrolledCourses', []);
     if (!enrolledCourses.includes(Number(id))) {
       enrolledCourses.push(Number(id));
-      localStorage.setItem('enrolledCourses', JSON.stringify(enrolledCourses));
+      safeSetJSON('enrolledCourses', enrolledCourses);
     }
     setEnrolled(true);
     message.success('加入课程成功');

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, UseGuards, Query, Body, Req, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, UseGuards, Query, Body, Req, UseInterceptors, UploadedFile, BadRequestException, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
@@ -6,7 +6,7 @@ import { User } from '../entities/user.entity';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UpdateProfileDto, ChangePasswordDto } from './dto/update-profile.dto';
-import { UpdateUserDto, QueryUserDto } from './dto/update-user.dto';
+import { CreateUserDto, UpdateUserDto, QueryUserDto } from './dto/update-user.dto';
 import { BatchAccountDto, ResetPasswordDto, SetRoleDto } from './dto/batch-account.dto';
 import { parseCSV, parseExcel, detectFileType } from '../common/utils/file-parser.util';
 
@@ -18,23 +18,33 @@ export class UsersController {
   @UseGuards(AuthGuard('jwt'))
   async getUsers(@Query() query: QueryUserDto) {
     const { role, status, keyword, page = 1, pageSize = 10 } = query;
-    let result;
-    if (keyword) {
-      result = await this.usersService.search(keyword, +page, +pageSize);
-    } else {
-      result = await this.usersService.findAllWithPagination(+page, +pageSize);
-    }
+
+    // Use findAll which supports role/status/search/pagination filters
+    const { users, total } = await this.usersService.findAll({
+      role: role !== undefined ? +role : undefined,
+      status: status !== undefined ? +status : undefined,
+      search: keyword,
+      page: +page,
+      pageSize: +pageSize,
+    });
+
     return {
       status: 200,
-      result,
+      result: {
+        records: users,
+        total,
+        current: +page,
+        size: +pageSize,
+        pages: Math.ceil(total / (+pageSize || 1)),
+      },
     };
   }
 
   @Post()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
-  async createUser(@Body() data: Partial<User>) {
-    const user = await this.usersService.create(data);
+  async createUser(@Body() dto: CreateUserDto) {
+    const user = await this.usersService.create(dto as Partial<User>);
     return {
       status: 200,
       result: user,
@@ -63,7 +73,6 @@ export class UsersController {
     };
   }
 
-  // Specific routes MUST come before :id wildcard
   @Get('profile/me')
   @UseGuards(AuthGuard('jwt'))
   async getMyProfile(@Req() req: any) {
@@ -75,18 +84,9 @@ export class UsersController {
   }
 
   @Get('username/:username')
+  @UseGuards(AuthGuard('jwt'))
   async getUserByUsername(@Param('username') username: string) {
     const user = await this.usersService.findByUsername(username);
-    return {
-      status: 200,
-      result: user,
-    };
-  }
-
-  @Get(':id')
-  @UseGuards(AuthGuard('jwt'))
-  async getUser(@Param('id') id: string) {
-    const user = await this.usersService.findOne(+id);
     return {
       status: 200,
       result: user,
@@ -116,9 +116,10 @@ export class UsersController {
   }
 
   // Batch account endpoints
-  @Post('batchCreate')
+  @Post('batch-create')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
+  @HttpCode(HttpStatus.OK)
   async batchCreate(@Body() dto: BatchAccountDto) {
     const result = await this.usersService.batchCreate(dto.accounts);
     return {
@@ -127,10 +128,11 @@ export class UsersController {
     };
   }
 
-  @Post('batchCreate/file')
+  @Post('batch-create/file')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
-  @UseInterceptors(FileInterceptor('file'))
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
   async batchCreateFromFile(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('请上传文件');
@@ -151,6 +153,11 @@ export class UsersController {
       throw new BadRequestException('文件中没有有效数据');
     }
 
+    const MAX_RECORDS = 1000;
+    if (records.length > MAX_RECORDS) {
+      throw new BadRequestException(`单次最多创建${MAX_RECORDS}个账号，当前文件包含${records.length}条记录`);
+    }
+
     const result = await this.usersService.batchCreate(records);
     return {
       status: 200,
@@ -158,9 +165,10 @@ export class UsersController {
     };
   }
 
-  @Post('batchResetPassword')
+  @Post('batch-reset-password')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
+  @HttpCode(HttpStatus.OK)
   async batchResetPassword(@Body() dto: ResetPasswordDto) {
     const result = await this.usersService.resetPassword(dto.accountIds);
     return {
@@ -169,9 +177,10 @@ export class UsersController {
     };
   }
 
-  @Post('batchSetRole')
+  @Post('batch-set-role')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
+  @HttpCode(HttpStatus.OK)
   async batchSetRole(@Body() dto: SetRoleDto) {
     const result = await this.usersService.setRole(dto.accountIds, dto.role);
     return {
@@ -207,6 +216,17 @@ export class UsersController {
     return {
       status: 200,
       result: stats,
+    };
+  }
+
+  // Wildcard :id route MUST be last to avoid shadowing specific routes
+  @Get(':id')
+  @UseGuards(AuthGuard('jwt'))
+  async getUser(@Param('id') id: string) {
+    const user = await this.usersService.findOne(+id);
+    return {
+      status: 200,
+      result: user,
     };
   }
 }

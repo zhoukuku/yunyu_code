@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   ManyToOne,
+  JoinColumn,
   Index,
 } from 'typeorm';
 import { Course } from './course.entity';
@@ -32,8 +33,10 @@ export class CourseReview {
   createdAt: Date;
 
   @ManyToOne(() => Course, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'courseId' })
   course: Course;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'userId' })
   user: User;
 }

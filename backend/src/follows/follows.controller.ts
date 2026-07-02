@@ -42,8 +42,17 @@ export class FollowsController {
   }
 
   @Get(':userId/followers')
-  async getFollowers(@Param('userId') userId: string) {
-    const followers = await this.followsService.getFollowers(+userId);
+  @UseGuards(AuthGuard('jwt'))
+  async getFollowers(
+    @Param('userId') userId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const followers = await this.followsService.getFollowers(
+      +userId,
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+    );
     return {
       status: 200,
       result: followers,
@@ -51,8 +60,17 @@ export class FollowsController {
   }
 
   @Get(':userId/following')
-  async getFollowing(@Param('userId') userId: string) {
-    const following = await this.followsService.getFollowing(+userId);
+  @UseGuards(AuthGuard('jwt'))
+  async getFollowing(
+    @Param('userId') userId: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const following = await this.followsService.getFollowing(
+      +userId,
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+    );
     return {
       status: 200,
       result: following,
@@ -60,6 +78,7 @@ export class FollowsController {
   }
 
   @Get(':userId/stats')
+  @UseGuards(AuthGuard('jwt'))
   async getFollowStats(@Param('userId') userId: string) {
     const stats = await this.followsService.getFollowStats(+userId);
     return {

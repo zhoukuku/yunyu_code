@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Row, Col, Card, Button, Tag, Avatar, Progress, Input, Dropdown, Badge } from 'antd';
+import { useEffect, useState, useRef } from 'react';
+import { Row, Col, Card, Button, Tag, Avatar, Progress, Badge, Skeleton } from 'antd';
 import {
-  TeamOutlined, TrophyOutlined, RocketOutlined, PlayCircleOutlined,
+  TeamOutlined, RocketOutlined, PlayCircleOutlined,
   BellOutlined, ClockCircleOutlined, FireOutlined, RightOutlined,
-  SearchOutlined, MenuOutlined, UserOutlined, SettingOutlined, LogoutOutlined,
-  GlobalOutlined, TrophyTwoTone, FireTwoTone, RocketTwoTone
+  UserOutlined, TrophyTwoTone, RocketTwoTone, CodeOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getUserDetail, getNotices, getClasses } from '../../services/api';
+import { safeGetItem, safeGetJSON } from '../../utils/storage';
 import './home.css';
 
 export default function HomePage() {
@@ -16,22 +16,73 @@ export default function HomePage() {
   const [notices, setNotices] = useState([]);
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [partialErrors, setPartialErrors] = useState([]);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
+    mountedRef.current = true;
+    const token = safeGetItem('accessToken');
     if (!token) {
-      window.location.href = '/login';
+      navigate('/login', { replace: true });
       return;
     }
-    Promise.all([getUserDetail(), getNotices(), getClasses()])
-      .then(([u, n, c]) => {
-        if (u.status === 200) setUser(u.result);
-        if (n.status === 200) setNotices(n.result?.records || []);
-        if (c.status === 200) setClasses(c.result?.records || []);
+
+    // Use allSettled so one failing API doesn't block the others
+    Promise.allSettled([
+      getUserDetail(),
+      getNotices(),
+      getClasses(),
+    ])
+      .then((results) => {
+        if (!mountedRef.current) return;
+
+        const errors = [];
+
+        // User detail
+        if (results[0].status === 'fulfilled') {
+          const u = results[0].value;
+          if (u && u.status === 200 && u.result) setUser(u.result);
+        } else {
+          errors.push('用户信息');
+          console.error('Failed to load user detail:', results[0].reason);
+        }
+
+        // Notices
+        if (results[1].status === 'fulfilled') {
+          const n = results[1].value;
+          if (n && n.status === 200) setNotices(n.result?.records || []);
+        } else {
+          errors.push('通知');
+          console.error('Failed to load notices:', results[1].reason);
+        }
+
+        // Classes
+        if (results[2].status === 'fulfilled') {
+          const c = results[2].value;
+          if (c && c.status === 200) setClasses(c.result?.records || []);
+        } else {
+          errors.push('班级');
+          console.error('Failed to load classes:', results[2].reason);
+        }
+
+        if (errors.length > 0 && errors.length < 3) {
+          setPartialErrors(errors);
+        } else if (errors.length === 3) {
+          setError('数据加载失败，请刷新页面重试');
+        }
       })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+      .catch((err) => {
+        if (!mountedRef.current) return;
+        console.error('Failed to load home data:', err);
+        setError('数据加载失败，请刷新页面重试');
+      })
+      .finally(() => {
+        if (mountedRef.current) setLoading(false);
+      });
+
+    return () => { mountedRef.current = false; };
+  }, [navigate]);
 
   // 入口卡片数据
   const entryCards = [
@@ -54,79 +105,33 @@ export default function HomePage() {
       color: '#11998e',
     },
     {
-      key: 'typing',
-      icon: <FireTwoTone twoToneColor="#fc4a1a" />,
-      title: '打字练习',
-      subtitle: '提升打字速度',
-      gradient: 'linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%)',
-      path: '/',
-      color: '#fc4a1a',
+      key: 'python',
+      icon: <CodeOutlined style={{ fontSize: 32, color: '#11998e' }} />,
+      title: 'Python编程',
+      subtitle: '专业Python编程环境',
+      gradient: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+      path: '/create/python',
+      color: '#11998e',
     },
-  ];
-
-  // 用户菜单
-  const userMenuItems = [
-    { key: 'profile', icon: <UserOutlined />, label: '个人中心' },
-    { key: 'settings', icon: <SettingOutlined />, label: '设置' },
-    { type: 'divider' },
-    { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', danger: true },
   ];
 
   // 统计数据
   const statsData = [
     { label: '我的班级', value: classes.length, color: '#667eea' },
     { label: '通知', value: notices.length, color: '#ff7a45' },
-    { label: '学习中', value: classes.filter(c => c.hadCourseNum > 0 && c.hadCourseNum < c.totalCourseNum).length || 0, color: '#52c41a' },
+    {
+      label: '学习中',
+      value: classes.filter(c => {
+        const had = Number(c?.hadCourseNum) || 0;
+        const total = Number(c?.totalCourseNum) || 0;
+        return had > 0 && had < total;
+      }).length,
+      color: '#52c41a',
+    },
   ];
 
   return (
     <div className="home-page">
-      {/* 顶部导航栏 */}
-      <header className="home-navbar">
-        <div className="navbar-content">
-          <div className="navbar-left">
-            <div className="logo">
-              <GlobalOutlined className="logo-icon" />
-              <span className="logo-text">编程学堂</span>
-            </div>
-            <nav className="nav-links">
-              <a className="nav-link active" onClick={() => navigate('/')}>首页</a>
-              <a className="nav-link" onClick={() => navigate('/create/scratch')}>课程</a>
-              <a className="nav-link" onClick={() => navigate('/competition')}>评测</a>
-            </nav>
-          </div>
-          <div className="navbar-right">
-            <Input
-              className="nav-search"
-              placeholder="搜索课程..."
-              prefix={<SearchOutlined style={{ color: '#999' }} />}
-              style={{ borderRadius: 20 }}
-            />
-            <Badge count={notices.length} size="small" offset={[-2, 2]}>
-              <Button
-                type="text"
-                className="nav-icon-btn"
-                icon={<BellOutlined style={{ fontSize: 20 }} />}
-              />
-            </Badge>
-            <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">
-              <div className="user-menu">
-                <Avatar
-                  size={36}
-                  src={user?.avatar}
-                  icon={<UserOutlined />}
-                  className="user-avatar"
-                />
-                <div className="user-info">
-                  <span className="user-name">{user?.name || user?.username || '同学'}</span>
-                  <span className="user-role">学生</span>
-                </div>
-              </div>
-            </Dropdown>
-          </div>
-        </div>
-      </header>
-
       {/* 顶部欢迎区域 */}
       <section className="welcome-section">
         <div className="welcome-bg">
@@ -135,47 +140,105 @@ export default function HomePage() {
           <div className="welcome-orb orb-3"></div>
         </div>
         <div className="welcome-content">
-          <Row gutter={24} align="middle">
-            <Col xs={24} md={16}>
-              <div className="welcome-info fade-in">
-                <Avatar
-                  size={80}
-                  src={user?.avatar}
-                  icon={<UserOutlined />}
-                  className="welcome-avatar"
-                />
-                <div className="welcome-text">
-                  <h1 className="welcome-title">
-                    你好，<span className="highlight">{user?.name || user?.username || '同学'}</span>！
-                  </h1>
-                  <p className="welcome-subtitle">继续保持好奇心，探索编程的无限可能</p>
-                  <div className="welcome-tags">
-                    <Tag className="welcome-tag" color="purple">
-                      <RocketOutlined /> 学习中
-                    </Tag>
-                    <Tag className="welcome-tag" color="cyan">
-                      <FireOutlined /> 持续进步
-                    </Tag>
+          {loading ? (
+            <Row gutter={24} align="middle">
+              <Col xs={24} md={16}>
+                <div className="welcome-info">
+                  <Skeleton.Avatar active size={80} shape="circle" />
+                  <div style={{ flex: 1 }}>
+                    <Skeleton active title={{ width: '60%' }} paragraph={{ rows: 1, width: '80%' }} />
                   </div>
                 </div>
-              </div>
-            </Col>
-            <Col xs={24} md={8}>
-              <div className="stats-container fade-in" style={{ animationDelay: '0.1s' }}>
-                {statsData.map((stat, index) => (
-                  <div key={index} className="stat-card" style={{ '--accent-color': stat.color }}>
-                    <span className="stat-value">{stat.value}</span>
-                    <span className="stat-label">{stat.label}</span>
+              </Col>
+              <Col xs={24} md={8}>
+                <div className="stats-container">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="stat-card" style={{ '--accent-color': '#667eea' }}>
+                      <Skeleton.Button active size="small" style={{ width: 40, height: 28 }} />
+                      <Skeleton.Button active size="small" style={{ width: 60, height: 18, marginTop: 8 }} />
+                    </div>
+                  ))}
+                </div>
+              </Col>
+            </Row>
+          ) : (
+            <Row gutter={24} align="middle">
+              <Col xs={24} md={16}>
+                <div className="welcome-info fade-in">
+                  <Avatar
+                    size={80}
+                    src={user?.avatar}
+                    icon={<UserOutlined />}
+                    className="welcome-avatar"
+                  />
+                  <div className="welcome-text">
+                    <h1 className="welcome-title">
+                      你好，<span className="highlight">{user?.name || user?.username || '同学'}</span>！
+                    </h1>
+                    <p className="welcome-subtitle">继续保持好奇心，探索编程的无限可能</p>
+                    <div className="welcome-tags">
+                      <Tag className="welcome-tag" color="purple">
+                        <RocketOutlined /> 学习中
+                      </Tag>
+                      <Tag className="welcome-tag" color="cyan">
+                        <FireOutlined /> 持续进步
+                      </Tag>
+                    </div>
                   </div>
-                ))}
-              </div>
-            </Col>
-          </Row>
+                </div>
+              </Col>
+              <Col xs={24} md={8}>
+                <div className="stats-container fade-in" style={{ animationDelay: '0.1s' }}>
+                  {statsData.map((stat, index) => (
+                    <div key={index} className="stat-card" style={{ '--accent-color': stat.color }}>
+                      <span className="stat-value">{stat.value}</span>
+                      <span className="stat-label">{stat.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </Col>
+            </Row>
+          )}
         </div>
       </section>
 
       {/* 内容区域 */}
       <main className="main-content">
+        {/* 错误提示 */}
+        {error && (
+          <div className="error-banner" style={{
+            background: '#fff2f0',
+            border: '1px solid #ffccc7',
+            borderRadius: 8,
+            padding: '12px 20px',
+            marginBottom: 24,
+            color: '#ff4d4f',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}>
+            <span>{error}</span>
+            <Button type="link" size="small" onClick={() => window.location.reload()}>刷新页面</Button>
+          </div>
+        )}
+
+        {/* 部分加载失败提示 */}
+        {partialErrors.length > 0 && (
+          <div className="warning-banner" style={{
+            background: '#fffbe6',
+            border: '1px solid #ffe58f',
+            borderRadius: 8,
+            padding: '10px 20px',
+            marginBottom: 24,
+            color: '#d48806',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}>
+            <span>{partialErrors.join('、')}加载失败，其余内容已正常展示</span>
+          </div>
+        )}
+
         {/* 快速入口卡片 */}
         <section className="section fade-in" style={{ animationDelay: '0.2s' }}>
           <div className="section-header">
@@ -308,7 +371,12 @@ export default function HomePage() {
                   <Badge count={notices.length} />
                 </div>
                 <div className="card-body">
-                  {notices.length === 0 ? (
+                  {loading ? (
+                    <div className="empty-state">
+                      <div className="loading-spinner" />
+                      <span>加载中...</span>
+                    </div>
+                  ) : notices.length === 0 ? (
                     <div className="empty-state">
                       <BellOutlined className="empty-icon" />
                       <p>暂无通知</p>
@@ -341,13 +409,6 @@ export default function HomePage() {
           </Row>
         </section>
       </main>
-
-      {/* 响应式移动端菜单按钮 */}
-      <Button
-        className="mobile-menu-btn"
-        type="text"
-        icon={<MenuOutlined style={{ fontSize: 24 }} />}
-      />
     </div>
   );
 }

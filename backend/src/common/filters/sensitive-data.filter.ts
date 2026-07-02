@@ -9,20 +9,24 @@ import { map } from 'rxjs/operators';
 
 @Injectable()
 export class SensitiveDataInterceptor implements NestInterceptor {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     return next.handle().pipe(
       map((data) => this.removeSensitiveData(data))
     );
   }
 
-  private removeSensitiveData(obj: any): any {
+  private removeSensitiveData<T>(obj: T): T {
+    return this._removeSensitiveData(obj) as T;
+  }
+
+  private _removeSensitiveData(obj: unknown): unknown {
     if (obj === null || obj === undefined) {
       return obj;
     }
 
     // If it's an array, process each element
     if (Array.isArray(obj)) {
-      return obj.map((item) => this.removeSensitiveData(item));
+      return obj.map((item) => this._removeSensitiveData(item));
     }
 
     // If it's a plain object, remove sensitive fields
@@ -30,7 +34,6 @@ export class SensitiveDataInterceptor implements NestInterceptor {
       const sensitiveFields = [
         'password',
         'passwordHash',
-        'refreshToken',
         'resetPasswordToken',
         'resetPasswordExpires',
         'emailVerifyToken',
@@ -38,12 +41,13 @@ export class SensitiveDataInterceptor implements NestInterceptor {
         '__v',
       ];
 
-      const result: any = {};
+      const result: Record<string, unknown> = {};
+      const objAsRecord = obj as Record<string, unknown>;
       for (const key of Object.keys(obj)) {
         if (sensitiveFields.includes(key)) {
           continue; // Skip sensitive fields
         }
-        result[key] = this.removeSensitiveData(obj[key]);
+        result[key] = this._removeSensitiveData(objAsRecord[key]);
       }
       return result;
     }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Favorite } from '../entities/favorite.entity';
@@ -11,15 +11,43 @@ export class FavoritesService {
     private favoritesRepository: Repository<Favorite>,
   ) {}
 
-  async findByUser(userId: number): Promise<Favorite[]> {
-    return this.favoritesRepository.find({
+  async findByUser(userId: number, page: number = 1, pageSize: number = 20): Promise<{ records: Favorite[]; total: number; current: number; size: number; pages: number }> {
+    // Use query builder to only select safe project fields (exclude content/projectData)
+    const [records, total] = await this.favoritesRepository.findAndCount({
       where: { userId },
       relations: ['project'],
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
+
+    // Sanitize: remove sensitive project data from favorited projects not owned by the user
+    const sanitized = records.map(fav => {
+      if (fav.project && fav.project.userId !== userId) {
+        const { content, projectData, cloudVariables, ...safeProject } = fav.project as unknown as Record<string, unknown>;
+        return { ...fav, project: safeProject };
+      }
+      return fav;
+    });
+
+    return {
+      records: sanitized as Favorite[],
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
+    };
   }
 
   async addFavorite(userId: number, projectId: number): Promise<Favorite> {
+    // Validate project exists
+    const project = await this.favoritesRepository.manager.findOne(Project, {
+      where: { id: projectId },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
     const existing = await this.favoritesRepository.findOne({
       where: { userId, projectId },
     });
@@ -39,11 +67,5 @@ export class FavoritesService {
       where: { userId, projectId },
     });
     return !!favorite;
-  }
-
-  async getProjectDetails(projectId: number): Promise<Project | null> {
-    return this.favoritesRepository.manager.findOne(Project, {
-      where: { id: projectId },
-    });
   }
 }

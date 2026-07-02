@@ -7,6 +7,14 @@ import { getUserDetail, getNotices, getClasses } from '@/services/api';
 import type { User, Notice, ClassEntity } from '@/services/types';
 import './index.less';
 
+// Safe localStorage helpers
+function safeGetItem(key: string): string | null {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+function safeRemoveItem(key: string): void {
+  try { localStorage.removeItem(key); } catch (e) { /* Swallow */ }
+}
+
 const { Header, Content, Footer } = Layout;
 
 export default function HomePage() {
@@ -20,7 +28,7 @@ export default function HomePage() {
 
   const loadData = async () => {
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = safeGetItem('accessToken');
       if (!token) {
         history.push('/login');
         return;
@@ -32,9 +40,9 @@ export default function HomePage() {
         getClasses(),
       ]);
 
-      if (userRes.status === 200) setUser(userRes.result);
-      if (noticesRes.status === 200) setNotices(noticesRes.result?.records || []);
-      if (classesRes.status === 200) setClasses(classesRes.result?.records || []);
+      if (userRes && userRes.status === 200) setUser(userRes.result);
+      if (noticesRes && noticesRes.status === 200) setNotices(noticesRes.result?.records || []);
+      if (classesRes && classesRes.status === 200) setClasses(classesRes.result?.records || []);
     } catch (e) {
       console.error('加载数据失败', e);
     }
@@ -46,8 +54,8 @@ export default function HomePage() {
 
   const handleUserMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key === 'logout') {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('user');
+      safeRemoveItem('accessToken');
+      safeRemoveItem('user');
       history.push('/login');
     }
   };

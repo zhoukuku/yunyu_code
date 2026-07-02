@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Card, Tag, Progress, Button, Modal, Input, message } from 'antd';
 import { PlayCircleOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -12,16 +12,20 @@ export default function ClassPage() {
   const [joinLoading, setJoinLoading] = useState(false);
   const navigate = useNavigate();
 
-  const loadData = () => {
+  const loadData = useCallback(() => {
     setLoading(true);
     getClasses().then(res => {
       if (res.status === 200) setClasses(res.result?.records || []);
-    }).catch(console.error).finally(() => setLoading(false));
-  };
+      else message.error(res.msg || '加载班级列表失败');
+    }).catch(error => {
+      console.error('Failed to load classes:', error);
+      message.error('加载班级列表失败，请检查网络连接');
+    }).finally(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleJoinClass = async () => {
     if (!joinCode.trim()) {
@@ -30,19 +34,24 @@ export default function ClassPage() {
     }
     setJoinLoading(true);
     try {
-      const res = await searchClassByCode(joinCode.trim());
-      if (res.result) {
-        await applyToJoinClass(res.result.id);
+      const searchRes = await searchClassByCode(joinCode.trim());
+      if (!searchRes.result) {
+        message.error(searchRes.msg || '未找到该班级，请检查班级代码');
+        return;
+      }
+      const applyRes = await applyToJoinClass(searchRes.result.id);
+      if (applyRes.status === 200) {
         message.success('申请加入班级成功，请等待老师审核');
         setJoinModalVisible(false);
         setJoinCode('');
         loadData();
       } else {
-        message.error('未找到该班级，请检查班级代码');
+        message.error(applyRes.msg || '加入班级失败');
       }
     } catch (error) {
       console.error('Failed to join class:', error);
-      message.error('加入班级失败，请检查班级代码是否正确');
+      const detail = error.response?.data?.msg;
+      message.error(detail || '加入班级失败，请检查班级代码是否正确');
     } finally {
       setJoinLoading(false);
     }

@@ -4,6 +4,18 @@ import { Repository } from 'typeorm';
 import { Hierarchy, Course, Lesson, Notice } from '../entities/course.entity';
 import { CourseFavorite } from '../entities/course-favorite.entity';
 
+export interface ThemeNode {
+  name: string;
+  id: string;
+  hierarchies: Array<{ hierarchyId: string; hierarchyName: string; courseCount: number }>;
+}
+
+export interface StandardNode {
+  name: string;
+  id: string;
+  children: Record<string, ThemeNode>;
+}
+
 @Injectable()
 export class CoursesService {
   constructor(
@@ -26,8 +38,10 @@ export class CoursesService {
       .replace(/_/g, '\\_');
   }
 
-  async getHierarchy() {
-    return this.hierarchyRepository.find();
+  async getHierarchy(limit = 1000) {
+    return this.hierarchyRepository.find({
+      take: limit,
+    });
   }
 
   async getCourses(hierarchyId?: string, filters?: {
@@ -64,10 +78,12 @@ export class CoursesService {
       query.andWhere('(course.courseName LIKE :search OR course.description LIKE :search)', { search: `%${sanitized}%` });
     }
 
-    // Sorting
-    const sortField = filters?.sortBy || 'course.id';
-    const sortOrder = filters?.sortOrder || 'ASC';
-    query.orderBy(sortField, sortOrder);
+    // 白名单校验排序字段防止 SQL 注入
+    const ALLOWED_SORT_COLUMNS = ['course.id', 'course.courseName', 'course.createdAt', 'course.difficulty', 'course.studentCount'];
+    const ALLOWED_SORT_ORDERS = ['ASC', 'DESC'];
+    const sortField = ALLOWED_SORT_COLUMNS.includes(filters?.sortBy || '') ? filters!.sortBy! : 'course.id';
+    const sortOrder = ALLOWED_SORT_ORDERS.includes(filters?.sortOrder || '') ? filters!.sortOrder! : 'ASC';
+    query.orderBy(sortField, sortOrder as 'ASC' | 'DESC');
 
     // Pagination
     const page = filters?.page || 1;
@@ -166,9 +182,9 @@ export class CoursesService {
     };
   }
 
-  async markNoticeAsRead(noticeId: number, userId: number): Promise<void> {
+  async markNoticeAsRead(id: number, userId: number): Promise<void> {
     await this.noticeRepository.update(
-      { noticeId: String(noticeId), userId },
+      { id, userId },
       { isRead: 1 }
     );
   }
@@ -190,8 +206,31 @@ export class CoursesService {
     if (!data.lessonName || data.lessonName.trim().length === 0) {
       throw new BadRequestException('课时名称不能为空');
     }
+    if (!data.courseId) {
+      throw new BadRequestException('课程ID不能为空');
+    }
+    // Validate course exists
+    const course = await this.courseRepository.findOne({ where: { id: data.courseId } });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+    // Auto-set lessonOrder if not explicitly provided
+    if (data.lessonOrder === undefined || data.lessonOrder === null) {
+      const maxOrderLesson = await this.lessonRepository.find({
+        where: { courseId: data.courseId },
+        order: { lessonOrder: 'DESC' },
+        take: 1,
+      });
+      data.lessonOrder = maxOrderLesson.length > 0 ? (maxOrderLesson[0].lessonOrder || 0) + 1 : 1;
+    }
     const lesson = this.lessonRepository.create(data);
-    return this.lessonRepository.save(lesson);
+    const savedLesson = await this.lessonRepository.save(lesson);
+
+    // Update course totalLessons count
+    const lessonCount = await this.lessonRepository.count({ where: { courseId: data.courseId } });
+    await this.courseRepository.update(data.courseId, { totalLessons: lessonCount });
+
+    return savedLesson;
   }
 
   async createNotice(data: Partial<Notice>) {
@@ -211,8 +250,13 @@ export class CoursesService {
       throw new NotFoundException('课程不存在');
     }
 
-    // Prevent changing certain fields
-    const { id: _id, createdAt: _createdAt, ...allowedData } = data as any;
+    // Prevent changing certain fields that are managed by the system
+    const allowedData: Partial<Course> = {};
+    for (const key of Object.keys(data) as (keyof Course)[]) {
+      if (!['id', 'createdAt', 'studentCount', 'totalLessons', 'completedLessons'].includes(key)) {
+        (allowedData as Record<string, unknown>)[key] = data[key];
+      }
+    }
     Object.assign(course, allowedData);
 
     return this.courseRepository.save(course);
@@ -238,7 +282,19 @@ export class CoursesService {
       throw new NotFoundException('课时不存在');
     }
 
-    const { id: _id, createdAt: _createdAt, ...allowedData } = data as any;
+    // Handle lessonOrder conflicts: if new order conflicts with another lesson, swap them
+    if (data.lessonOrder !== undefined && data.lessonOrder !== lesson.lessonOrder) {
+      const conflict = await this.lessonRepository.findOne({
+        where: { courseId: lesson.courseId, lessonOrder: data.lessonOrder },
+      });
+      if (conflict && conflict.id !== id) {
+        // Swap: assign the old order to the conflicting lesson
+        conflict.lessonOrder = lesson.lessonOrder;
+        await this.lessonRepository.save(conflict);
+      }
+    }
+
+    const { id: _id, createdAt: _createdAt, courseId: _courseId, ...allowedData } = data as Record<string, unknown>;
     Object.assign(lesson, allowedData);
 
     return this.lessonRepository.save(lesson);
@@ -250,8 +306,9 @@ export class CoursesService {
       throw new NotFoundException('课程不存在');
     }
 
-    // Delete associated lessons first
+    // Delete associated lessons and favorites first
     await this.lessonRepository.delete({ courseId: id });
+    await this.courseFavoriteRepository.delete({ courseId: id });
     await this.courseRepository.delete(id);
 
     return { success: true };
@@ -263,7 +320,13 @@ export class CoursesService {
       throw new NotFoundException('课时不存在');
     }
 
+    const courseId = lesson.courseId;
     await this.lessonRepository.delete(id);
+
+    // Update course totalLessons count
+    const lessonCount = await this.lessonRepository.count({ where: { courseId } });
+    await this.courseRepository.update(courseId, { totalLessons: lessonCount });
+
     return { success: true };
   }
 
@@ -273,7 +336,7 @@ export class CoursesService {
       throw new NotFoundException('通知不存在');
     }
 
-    const { id: _id, createdAt: _createdAt, ...allowedData } = data as any;
+    const { id: _id, createdAt: _createdAt, ...allowedData } = data as Record<string, unknown>;
     Object.assign(notice, allowedData);
 
     return this.noticeRepository.save(notice);
@@ -331,10 +394,10 @@ export class CoursesService {
     const hierarchyMap = new Map(hierarchies.map(h => [h.hierarchyId, h]));
 
     return categories.map(cat => {
-      const hierarchy = hierarchyMap.get(cat.hierarchyId);
+      const hierarchy = cat.hierarchyId ? hierarchyMap.get(cat.hierarchyId) : undefined;
       return {
-        hierarchyId: cat.hierarchyId,
-        hierarchyName: hierarchy?.hierarchyName || cat.hierarchyId,
+        hierarchyId: cat.hierarchyId || '未分类',
+        hierarchyName: hierarchy?.hierarchyName || cat.hierarchyId || '未分类',
         standardClassifyId: hierarchy?.standardClassifyId || '',
         standardClassifyName: hierarchy?.standardClassifyName || '',
         themeClassifyId: hierarchy?.themeClassifyId || '',
@@ -349,7 +412,7 @@ export class CoursesService {
     const categories = await this.getCourseCategories();
 
     // Build tree structure: standardClassify -> themeClassify -> hierarchy
-    const tree: Record<string, any> = {};
+    const tree: Record<string, StandardNode> = {};
 
     for (const cat of categories) {
       const standardName = cat.standardClassifyName || '其他';
@@ -379,7 +442,7 @@ export class CoursesService {
     }
 
     // Convert to array format
-    return Object.values(tree).map((standard: any) => ({
+    return Object.values(tree).map((standard) => ({
       ...standard,
       children: Object.values(standard.children),
     }));
@@ -410,10 +473,10 @@ export class CoursesService {
 
     const sanitized = this.sanitizeSearchInput(keyword);
 
-    // Get matching courses
+    // Get matching courses (search both courseName and description)
     const courses = await this.courseRepository
       .createQueryBuilder('course')
-      .where('course.courseName LIKE :keyword', { keyword: `%${sanitized}%` })
+      .where('(course.courseName LIKE :keyword OR course.description LIKE :keyword)', { keyword: `%${sanitized}%` })
       .select(['course.id', 'course.courseName', 'course.teacher', 'course.coverImage'])
       .orderBy('course.studentCount', 'DESC')
       .take(limit)
@@ -445,13 +508,16 @@ export class CoursesService {
 
   // ============ Course Favorites (favoritesWorks) ============
   async getFavoriteCourses(userId: number, page = 1, pageSize = 20) {
-    const [favorites, total] = await this.courseFavoriteRepository.findAndCount({
-      where: { userId },
-      relations: ['course'],
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+    // Use query builder with inner join to only count favorites whose course still exists
+    const query = this.courseFavoriteRepository
+      .createQueryBuilder('favorite')
+      .innerJoinAndSelect('favorite.course', 'course')
+      .where('favorite.userId = :userId', { userId })
+      .orderBy('favorite.createdAt', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+
+    const [favorites, total] = await query.getManyAndCount();
 
     return {
       records: favorites.map(f => f.course).filter(Boolean),
@@ -463,6 +529,12 @@ export class CoursesService {
   }
 
   async toggleFavorite(userId: number, courseId: number) {
+    // Validate course exists
+    const course = await this.courseRepository.findOne({ where: { id: courseId } });
+    if (!course) {
+      throw new NotFoundException('课程不存在');
+    }
+
     const existing = await this.courseFavoriteRepository.findOne({
       where: { userId, courseId },
     });

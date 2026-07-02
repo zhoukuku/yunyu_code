@@ -27,6 +27,7 @@ export enum EvaluationStatus {
 @Index(['competitionId'])
 @Index(['userId'])
 @Index(['problemId'])
+@Index(['submissionId'])
 export class CompetitionEvaluation {
   @PrimaryGeneratedColumn()
   id: number;
@@ -39,6 +40,9 @@ export class CompetitionEvaluation {
 
   @Column({ nullable: true })
   userName: string;
+
+  @Column({ nullable: true })
+  submissionId: number;
 
   @Column({ nullable: true })
   problemId: number;

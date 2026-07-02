@@ -24,12 +24,16 @@ export class SearchService {
     posts: Post[];
     projects: Project[];
   }> {
-    const likeKeyword = `%${keyword}%`;
+    const sanitized = keyword
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+    const likeKeyword = `%${sanitized}%`;
 
     const courses = await this.courseRepository
       .createQueryBuilder('course')
-      .where('course.courseName LIKE :keyword', { keyword: likeKeyword })
-      .orWhere('course.description LIKE :keyword', { keyword: likeKeyword })
+      .where('course.status = :status', { status: 1 })
+      .andWhere('(course.courseName LIKE :keyword OR course.description LIKE :keyword)', { keyword: likeKeyword })
       .orderBy('course.createdAt', 'DESC')
       .take(10)
       .getMany();
@@ -53,6 +57,14 @@ export class SearchService {
   }
 
   async saveSearchHistory(userId: number, keyword: string): Promise<SearchHistory> {
+    // Deduplicate: if the user already searched this keyword, update the timestamp
+    const existing = await this.searchHistoryRepository.findOne({
+      where: { userId, keyword },
+    });
+    if (existing) {
+      await this.searchHistoryRepository.update(existing.id, { createdAt: new Date() });
+      return { ...existing, createdAt: new Date() };
+    }
     const history = this.searchHistoryRepository.create({ userId, keyword });
     return this.searchHistoryRepository.save(history);
   }

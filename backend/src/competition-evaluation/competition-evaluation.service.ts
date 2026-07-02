@@ -22,6 +22,8 @@ export class CompetitionEvaluationService {
     userId?: number;
     problemId?: number;
     status?: EvaluationStatus;
+    page?: number;
+    pageSize?: number;
   }) {
     const query = this.evaluationRepository.createQueryBuilder('evaluation');
 
@@ -40,10 +42,17 @@ export class CompetitionEvaluationService {
 
     query.orderBy('evaluation.createdAt', 'DESC');
 
-    const evaluations = await query.getMany();
+    const page = filters?.page || 1;
+    const pageSize = filters?.pageSize || 20;
+    query.skip((page - 1) * pageSize).take(pageSize);
+
+    const [evaluations, total] = await query.getManyAndCount();
     return {
       records: evaluations,
-      total: evaluations.length,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
     };
   }
 
@@ -76,6 +85,8 @@ export class CompetitionEvaluationService {
     userId?: number;
     problemId?: number;
     status?: number;
+    page?: number;
+    pageSize?: number;
   }) {
     const query = this.submissionRepository.createQueryBuilder('submission');
 
@@ -94,10 +105,17 @@ export class CompetitionEvaluationService {
 
     query.orderBy('submission.submittedAt', 'DESC');
 
-    const submissions = await query.getMany();
+    const page = filters?.page || 1;
+    const pageSize = filters?.pageSize || 20;
+    query.skip((page - 1) * pageSize).take(pageSize);
+
+    const [submissions, total] = await query.getManyAndCount();
     return {
       records: submissions,
-      total: submissions.length,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
     };
   }
 
@@ -119,11 +137,12 @@ export class CompetitionEvaluationService {
     });
     const saved = await this.submissionRepository.save(submission);
 
-    // Create evaluation record
+    // Create linked evaluation record
     await this.createEvaluation({
       competitionId: data.competitionId,
       userId: data.userId,
       userName: data.userName,
+      submissionId: saved.id,
       problemId: data.problemId,
       problemTitle: data.problemTitle,
       submittedCode: data.submittedCode,
@@ -150,18 +169,22 @@ export class CompetitionEvaluationService {
       status: result.status === EvaluationStatus.ACCEPTED ? 1 : 2,
     });
 
-    await this.evaluationRepository.update({ submissionId: id } as any, {
-      score: result.score,
-      maxScore: result.maxScore,
-      passedCases: result.passedCases,
-      totalCases: result.totalCases,
-      executionTime: result.executionTime,
-      memoryUsage: result.memoryUsage,
-      status: result.status,
-      errorMessage: result.errorMessage,
-      testCases: result.testCases,
-      evaluatedAt: new Date(),
-    } as any);
+    // 通过 submissionId 查找并更新关联的评测记录
+    await this.evaluationRepository.update(
+      { submissionId: id },
+      {
+        score: result.score,
+        maxScore: result.maxScore,
+        passedCases: result.passedCases,
+        totalCases: result.totalCases,
+        executionTime: result.executionTime,
+        memoryUsage: result.memoryUsage,
+        status: result.status,
+        errorMessage: result.errorMessage,
+        testCases: result.testCases,
+        evaluatedAt: new Date(),
+      },
+    );
 
     return this.submissionRepository.findOne({ where: { id } });
   }
@@ -177,6 +200,8 @@ export class CompetitionEvaluationService {
     competitionId?: number;
     difficulty?: string;
     enabled?: boolean;
+    page?: number;
+    pageSize?: number;
   }) {
     const query = this.problemRepository.createQueryBuilder('problem');
 
@@ -192,10 +217,17 @@ export class CompetitionEvaluationService {
 
     query.orderBy('problem.id', 'ASC');
 
-    const problems = await query.getMany();
+    const page = filters?.page || 1;
+    const pageSize = filters?.pageSize || 20;
+    query.skip((page - 1) * pageSize).take(pageSize);
+
+    const [problems, total] = await query.getManyAndCount();
     return {
       records: problems,
-      total: problems.length,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
     };
   }
 
@@ -225,50 +257,50 @@ export class CompetitionEvaluationService {
 
   async getEvaluationStats(competitionId: number, problemId?: number) {
     const query = this.evaluationRepository.createQueryBuilder('evaluation');
-    query.andWhere('evaluation.competitionId = :competitionId', { competitionId });
+    query.where('evaluation.competitionId = :competitionId', { competitionId });
 
     if (problemId) {
       query.andWhere('evaluation.problemId = :problemId', { problemId });
     }
 
-    const evaluations = await query.getMany();
+    // Use SQL aggregation to avoid loading all rows into memory
+    const stats = await query
+      .select('COUNT(*)', 'total')
+      .addSelect('SUM(CASE WHEN evaluation.status = :accepted THEN 1 ELSE 0 END)', 'accepted')
+      .addSelect('SUM(CASE WHEN evaluation.status = :pending THEN 1 ELSE 0 END)', 'pending')
+      .addSelect('SUM(CASE WHEN evaluation.status = :running THEN 1 ELSE 0 END)', 'running')
+      .addSelect('AVG(evaluation.score)', 'avgScore')
+      .setParameter('accepted', EvaluationStatus.ACCEPTED)
+      .setParameter('pending', EvaluationStatus.PENDING)
+      .setParameter('running', EvaluationStatus.RUNNING)
+      .getRawOne();
 
-    const total = evaluations.length;
-    const accepted = evaluations.filter(e => e.status === EvaluationStatus.ACCEPTED).length;
-    const pending = evaluations.filter(e => e.status === EvaluationStatus.PENDING).length;
-    const running = evaluations.filter(e => e.status === EvaluationStatus.RUNNING).length;
+    const total = parseInt(stats.total, 10) || 0;
+    const accepted = parseInt(stats.accepted, 10) || 0;
+    const pending = parseInt(stats.pending, 10) || 0;
+    const running = parseInt(stats.running, 10) || 0;
     const rejected = total - accepted - pending - running;
+    const avgScore = stats.avgScore ? Math.round(parseFloat(stats.avgScore) * 100) / 100 : 0;
 
-    const avgScore = total > 0
-      ? evaluations.reduce((sum, e) => sum + (e.score || 0), 0) / total
-      : 0;
-
-    return {
-      total,
-      accepted,
-      pending,
-      running,
-      rejected,
-      avgScore: Math.round(avgScore * 100) / 100,
-    };
+    return { total, accepted, pending, running, rejected, avgScore };
   }
 
   async getSubmissionStats(competitionId: number) {
-    const submissions = await this.submissionRepository.find({
-      where: { competitionId },
-    });
+    // Use SQL aggregation to avoid loading all rows into memory
+    const stats = await this.submissionRepository
+      .createQueryBuilder('submission')
+      .select('COUNT(*)', 'total')
+      .addSelect('SUM(CASE WHEN submission.status = 1 THEN 1 ELSE 0 END)', 'accepted')
+      .addSelect('SUM(CASE WHEN submission.status = 2 THEN 1 ELSE 0 END)', 'rejected')
+      .where('submission.competitionId = :competitionId', { competitionId })
+      .getRawOne();
 
-    const total = submissions.length;
-    const accepted = submissions.filter(s => s.status === 1).length;
-    const rejected = submissions.filter(s => s.status === 2).length;
+    const total = parseInt(stats.total, 10) || 0;
+    const accepted = parseInt(stats.accepted, 10) || 0;
+    const rejected = parseInt(stats.rejected, 10) || 0;
     const pending = total - accepted - rejected;
+    const acceptRate = total > 0 ? Math.round((accepted / total) * 10000) / 100 : 0;
 
-    return {
-      total,
-      accepted,
-      rejected,
-      pending,
-      acceptRate: total > 0 ? Math.round((accepted / total) * 10000) / 100 : 0,
-    };
+    return { total, accepted, rejected, pending, acceptRate };
   }
 }

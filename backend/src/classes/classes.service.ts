@@ -13,15 +13,20 @@ export class ClassesService {
     private userClassRepository: Repository<UserClass>,
   ) {}
 
-  async findAll(teacherId?: number) {
+  async findAll(teacherId?: number, page: number = 1, pageSize: number = 10) {
     const where = teacherId ? { teacherId } : {};
-    const classes = await this.classesRepository.find({ where });
+    const [classes, total] = await this.classesRepository.findAndCount({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      order: { createdAt: 'DESC' },
+    });
     return {
       records: classes,
-      total: classes.length,
-      size: 10,
-      current: 1,
-      pages: 1,
+      total,
+      size: pageSize,
+      current: page,
+      pages: Math.ceil(total / pageSize),
     };
   }
 
@@ -48,6 +53,11 @@ export class ClassesService {
   }
 
   async applyToJoin(classId: number, userId: number) {
+    // Validate class exists
+    const classEntity = await this.classesRepository.findOne({ where: { id: classId } });
+    if (!classEntity) {
+      return { status: 404, message: 'Class not found' };
+    }
     // Check if already exists
     const existing = await this.userClassRepository.findOne({
       where: { classId, userId },
@@ -70,7 +80,7 @@ export class ClassesService {
     if (classIds.length === 0) return [];
     const classes = await this.classesRepository
       .createQueryBuilder('class')
-      .whereInIds(classIds)
+      .where('class.id IN (:...ids)', { ids: classIds })
       .getMany();
     return classes;
   }

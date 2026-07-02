@@ -65,7 +65,10 @@ export class LeaderboardService {
     }
 
     entry.score += scoreIncrement;
-    return this.leaderboardRepository.save(entry);
+    const saved = await this.leaderboardRepository.save(entry);
+    // Recalculate ranks for this period so ranks stay current
+    await this.recalculateRanks(type);
+    return saved;
   }
 
   async setScore(userId: number, type: LeaderboardType, score: number): Promise<Leaderboard> {
@@ -85,21 +88,26 @@ export class LeaderboardService {
     }
 
     entry.score = score;
-    return this.leaderboardRepository.save(entry);
+    const saved = await this.leaderboardRepository.save(entry);
+    // Recalculate ranks for this period so ranks stay current
+    await this.recalculateRanks(type);
+    return saved;
   }
 
   async recalculateRanks(type: LeaderboardType): Promise<void> {
     const period = this.getPeriodKey(type);
-    const entries = await this.leaderboardRepository.find({
-      where: { type, period },
-      order: { score: 'DESC' },
-    });
 
-    for (let i = 0; i < entries.length; i++) {
-      entries[i].rank = i + 1;
-    }
-
-    await this.leaderboardRepository.save(entries);
+    // Use a raw query to update ranks directly in DB without loading all entries into memory
+    await this.leaderboardRepository.query(`
+      UPDATE leaderboard l
+      SET l.rank = ranked.rank_num
+      FROM (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY score DESC, created_at ASC) as rank_num
+        FROM leaderboard
+        WHERE type = $1 AND period = $2
+      ) ranked
+      WHERE l.id = ranked.id AND l.type = $1 AND l.period = $2
+    `, [type, period]);
   }
 
   async getLeaderboardStats(type: LeaderboardType): Promise<{ totalUsers: number; topScore: number }> {
@@ -108,7 +116,7 @@ export class LeaderboardService {
       .createQueryBuilder('leaderboard')
       .where('leaderboard.type = :type', { type })
       .andWhere('leaderboard.period = :period', { period })
-      .select('COUNT(DISTINCT leaderboard.user_id)', 'totalUsers')
+      .select('COUNT(DISTINCT leaderboard.userId)', 'totalUsers')
       .getRawOne();
 
     const topEntry = await this.leaderboardRepository.findOne({
@@ -117,7 +125,7 @@ export class LeaderboardService {
     });
 
     return {
-      totalUsers: parseInt(result.totalUsers) || 0,
+      totalUsers: parseInt(result.totalUsers, 10) || 0,
       topScore: topEntry?.score || 0,
     };
   }

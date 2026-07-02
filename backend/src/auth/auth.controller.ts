@@ -3,14 +3,12 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { AuthThrottlerGuard } from '../common/guards/throttle.guard';
 
 @Controller()
 export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('account/login')
-  @UseGuards(AuthThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   async login(@Body() loginDto: LoginDto) {
     const result = await this.authService.login(loginDto);
@@ -42,7 +40,6 @@ export class AuthController {
   }
 
   @Post('account/register')
-  @UseGuards(AuthThrottlerGuard)
   async register(@Body() registerDto: RegisterDto) {
     const result = await this.authService.register(registerDto);
     return {

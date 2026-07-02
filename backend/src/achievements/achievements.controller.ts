@@ -7,6 +7,10 @@ import { AchievementType } from '../entities/achievement.entity';
 export class AchievementsController {
   constructor(private readonly achievementsService: AchievementsService) {}
 
+  private isValidAchievementType(type: string): type is AchievementType {
+    return Object.values(AchievementType).includes(type as AchievementType);
+  }
+
   @Post('initialize')
   @UseGuards(AuthGuard('jwt'))
   async initializeAchievements(@Request() req) {
@@ -48,8 +52,13 @@ export class AchievementsController {
   }
 
   @Get(':userId')
-  async getUserAchievementsById(@Param('userId') userId: string) {
-    const achievements = await this.achievementsService.getUserAchievements(parseInt(userId, 10));
+  @UseGuards(AuthGuard('jwt'))
+  async getUserAchievementsById(@Request() req, @Param('userId') userId: string) {
+    const requestingUserId = req.user?.sub;
+    if (!requestingUserId) return { status: 401, result: null };
+    const uid = parseInt(userId, 10);
+    if (isNaN(uid)) return { status: 400, message: 'Invalid userId' };
+    const achievements = await this.achievementsService.getUserAchievements(uid);
     return {
       status: 200,
       result: achievements,
@@ -59,10 +68,13 @@ export class AchievementsController {
   @Post('progress')
   @UseGuards(AuthGuard('jwt'))
   async updateProgress(@Body() body: { type: AchievementType; increment?: number }, @Request() req) {
+    if (!this.isValidAchievementType(body.type)) {
+      return { status: 400, message: `Invalid achievement type. Valid values: ${Object.values(AchievementType).join(', ')}` };
+    }
     const achievement = await this.achievementsService.updateProgress(
       req.user.sub,
       body.type,
-      body.increment || 1,
+      body.increment ?? 1,
     );
     return {
       status: 200,
@@ -73,6 +85,9 @@ export class AchievementsController {
   @Post('unlock')
   @UseGuards(AuthGuard('jwt'))
   async unlockAchievement(@Body() body: { type: AchievementType }, @Request() req) {
+    if (!this.isValidAchievementType(body.type)) {
+      return { status: 400, message: `Invalid achievement type. Valid values: ${Object.values(AchievementType).join(', ')}` };
+    }
     const achievement = await this.achievementsService.unlockAchievement(req.user.sub, body.type);
     return {
       status: 200,

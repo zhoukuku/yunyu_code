@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getUserDetail, getNotices, getClasses } from '../../services/api';
+import { safeGetItem } from '../../../utils/storage';
 import './homeEnhanced.css';
 
 // 骨架屏组件
@@ -73,7 +74,7 @@ export default function HomeEnhanced() {
   const [welcomeOpacity, setWelcomeOpacity] = useState(1);
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
+    const token = safeGetItem('accessToken');
     if (!token) {
       window.location.href = '/login';
       return;

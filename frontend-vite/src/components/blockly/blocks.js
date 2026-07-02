@@ -824,6 +824,43 @@ export const defineBlocks = (Blockly) => {
     }
   };
 
+  Blockly.Blocks['event_broadcast'] = {
+    init: function() {
+      this.appendDummyInput()
+        .appendField('广播')
+        .appendField(new Blockly.FieldTextInput('message1'), 'BROADCASTINPUT');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#FFBF00');
+      this.setTooltip('广播一条消息');
+    }
+  };
+
+  Blockly.Blocks['event_broadcastandwait'] = {
+    init: function() {
+      this.appendDummyInput()
+        .appendField('广播')
+        .appendField(new Blockly.FieldTextInput('message1'), 'BROADCASTINPUT')
+        .appendField('并等待');
+      this.setPreviousStatement(true, null);
+      this.setNextStatement(true, null);
+      this.setColour('#FFBF00');
+      this.setTooltip('广播一条消息并等待所有接收脚本执行完毕');
+    }
+  };
+
+  Blockly.Blocks['event_whenbroadcastreceived'] = {
+    init: function() {
+      this.appendDummyInput()
+        .appendField('当收到广播')
+        .appendField(new Blockly.FieldTextInput('message1'), 'BROADCASTINPUT');
+      this.appendStatementInput('HANDLER');
+      this.setNextStatement(true, null);
+      this.setColour('#FFBF00');
+      this.setTooltip('当收到指定的广播消息时执行');
+    }
+  };
+
   // ========================================================================
   // Control Blocks
   // ========================================================================
@@ -1021,9 +1058,12 @@ export const defineBlocks = (Blockly) => {
   Blockly.Blocks['sensing_coloristouching'] = {
     init: function() {
       this.appendValueInput('COLOR')
-        .setCheck('Colour');
-      this.appendDummyInput()
+        .setCheck('Colour')
         .appendField('颜色');
+      this.appendDummyInput()
+        .appendField('碰到颜色');
+      this.appendDummyInput()
+        .appendField(new Blockly.FieldColour('#ffffff'), 'COLOR2');
       this.setOutput(true, 'Boolean');
       this.setColour('#5CB1D6');
     }
@@ -1758,3 +1798,8 @@ export const defineBlocks = (Blockly) => {
     }
   };
 };
+
+// CommonJS compatibility: allow require() in Node.js test files
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { defineBlocks };
+}

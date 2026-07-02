@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Row, Col, Button, Progress, Spin, message, List, Tag, Divider, Tabs, Slider, Tooltip, Select, Space } from 'antd';
 import { LeftOutlined, RightOutlined, CheckCircleOutlined, PlayCircleOutlined, BookOutlined, FilePdfOutlined, DownloadOutlined, VideoCameraOutlined, PauseOutlined, SoundOutlined, MutedOutlined, ExpandOutlined, CompressOutlined, CodeOutlined, ClearOutlined, SaveOutlined } from '@ant-design/icons';
 import { getLessonDetail, markLessonCompleted, markLessonIncomplete, getCourseLessonProgress, getVideoProgress, saveVideoProgress, markVideoCompleted } from '../../services/api';
+import { safeGetItem } from '../../utils/storage';
 import PptViewer from '../../components/PptViewer';
 import './index.less';
 
@@ -40,11 +41,11 @@ class LessonCodeExecutor {
     if (typeof v === 'boolean') return v ? 'True' : 'False';
     if (typeof v === 'string') return v;
     if (Array.isArray(v)) {
-      return '[' + v.map(x => this._formatValue(x)).join(', ') + ']';
+      return `[${v.map(x => this._formatValue(x)).join(', ')}]`;
     }
     if (typeof v === 'object') {
       const entries = Object.entries(v);
-      return '{' + entries.map(([k, val]) => `${this._formatValue(k)}: ${this._formatValue(val)}`).join(', ') + '}';
+      return `{${entries.map(([k, val]) => `${this._formatValue(k)}: ${this._formatValue(val)}`).join(', ')}}`;
     }
     return String(v);
   }
@@ -156,7 +157,7 @@ class LessonCodeExecutor {
 
       const fn = new Function(
         ...allParamNames, '__print',
-        `"use strict"; ${mathObjCode} return (async () => { try { ${jsCode} } catch (__py_error) { throw new Error(\`Python执行错误: \${__py_error.message}\`); } })()`
+        `${mathObjCode} return (async () => { try { ${jsCode} } catch (__py_error) { throw new Error(\`Python执行错误: \${__py_error.message}\`); } })()`
       );
 
       await fn(...allParamValues, (...args) => this.log(args.map(a => this._formatValue(a)).join(' ')));
@@ -190,7 +191,7 @@ int main() {
       if (processed.includes('cout <<') && !processed.includes('<< endl')) {
         processed = processed.replace(/;$/, ' << endl;');
       }
-      if (processed) cpp += '    ' + processed + '\n';
+      if (processed) cpp += `    ${processed}\n`;
     }
     cpp += `
     return 0;
@@ -277,8 +278,6 @@ export default function LessonPage() {
     (entry) => { if (entry.clear) setCodeOutput([]); else setCodeOutput(prev => [...prev, entry]); },
     (entry) => setCodeOutput(prev => [...prev, entry])
   ));
-  const [courseHierarchy, setCourseHierarchy] = useState(null);
-
   useEffect(() => {
     if (lessonId) {
       loadLessonDetail();
@@ -373,7 +372,7 @@ export default function LessonPage() {
   };
 
   const loadVideoProgress = async () => {
-    const token = localStorage.getItem('accessToken');
+    const token = safeGetItem('accessToken');
     if (!token || !lessonId) return;
 
     try {
@@ -410,7 +409,7 @@ export default function LessonPage() {
   };
 
   const handleSaveVideoProgress = async (currentTime, duration) => {
-    const token = localStorage.getItem('accessToken');
+    const token = safeGetItem('accessToken');
     if (!token || !lessonId) return;
 
     try {
@@ -429,7 +428,7 @@ export default function LessonPage() {
     await handleSaveVideoProgress(duration, duration);
 
     // Mark video as completed
-    const token = localStorage.getItem('accessToken');
+    const token = safeGetItem('accessToken');
     if (token && lessonId) {
       try {
         await markVideoCompleted(Number(lessonId));
@@ -513,7 +512,7 @@ export default function LessonPage() {
   }, [volume, isMuted]);
 
   const handleMarkComplete = async () => {
-    const token = localStorage.getItem('accessToken');
+    const token = safeGetItem('accessToken');
     if (!token) {
       message.info('请先登录');
       navigate('/login');
@@ -561,7 +560,10 @@ export default function LessonPage() {
       } else if (codeLanguage === 'cpp') {
         const cppCode = codeExecutor.generateCppCode(code);
         setCodeOutput([{ message: '=== C++ 代码已生成 ===', type: 'info', timestamp: Date.now() }]);
-        setCodeOutput(prev => [...prev, { message: '\n生成的代码:\n' + cppCode, type: 'code', timestamp: Date.now() }]);
+        setCodeOutput(prev => [...prev, { message: `\n生成的代码:\n${cppCode}`, type: 'code', timestamp: Date.now() }]);
+      } else if (codeLanguage === 'scratch') {
+        setCodeOutput([{ message: '=== Scratch 积木块 ===', type: 'info', timestamp: Date.now() }]);
+        setCodeOutput(prev => [...prev, { message: 'Scratch 积木块已就绪。切换到 Scratch 编辑器可进行可视化编程。', type: 'info', timestamp: Date.now() }]);
       }
     } finally {
       setIsCodeRunning(false);
@@ -583,17 +585,11 @@ export default function LessonPage() {
       setCode(DEFAULT_PYTHON_CODE);
     } else if (lang === 'cpp') {
       setCode(DEFAULT_CPP_CODE);
+    } else if (lang === 'scratch') {
+      setCode(DEFAULT_SCRATCH_BLOCKS);
     }
     handleClearCode();
   };
-
-  // Get course hierarchy from course data when lesson is loaded
-  useEffect(() => {
-    if (lesson?.courseId) {
-      // Try to determine hierarchy from course info if available
-      // Default to scratch for now, can be enhanced with actual course data
-    }
-  }, [lesson]);
 
   const handleNavigateToLesson = (targetLessonId) => {
     navigate(`/courses/${courseId}/lessons/${targetLessonId}`);
@@ -667,6 +663,7 @@ export default function LessonPage() {
                         onEnded={handleVideoEnded}
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
+                        onError={() => message.error('视频加载失败，请刷新页面重试')}
                         onClick={togglePlay}
                         style={{ width: '100%', borderRadius: 8, cursor: 'pointer' }}
                       >
@@ -773,7 +770,7 @@ export default function LessonPage() {
                         <Button
                           type="primary"
                           icon={<DownloadOutlined />}
-                          onClick={() => window.open(lesson.pptUrl, '_blank')}
+                          onClick={() => window.open(lesson.pptUrl, '_blank', 'noopener,noreferrer')}
                         >
                           下载课件
                         </Button>
@@ -815,6 +812,7 @@ export default function LessonPage() {
                             options={[
                               { value: 'python', label: 'Python' },
                               { value: 'cpp', label: 'C++' },
+                              { value: 'scratch', label: 'Scratch' },
                             ]}
                           />
                           <Button

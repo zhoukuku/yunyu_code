@@ -110,7 +110,7 @@ export const registerGenerators = (Blockly) => {
   };
 
   Blockly.JavaScript['motion_pointindirection'] = function(block) {
-    const direction = getValue(block, 'DIRECTION', 90);
+    const direction = getFieldValue(block, 'DIRECTION') ?? 90;
     return `await interpreter.motion_pointindirection(interpreter.currentSpriteId, ${direction});\n`;
   };
 
@@ -131,12 +131,18 @@ export const registerGenerators = (Blockly) => {
 
   Blockly.JavaScript['motion_gotoxy_menu'] = function(block) {
     const dropdown = getFieldValue(block, 'DROPDOWN') || 'x_position';
-    return [dropdown, Blockly.JavaScript.ORDER_NONE];
+    if (dropdown === 'x_position') {
+      return [`interpreter.motion_xposition(interpreter.currentSpriteId)`, Blockly.JavaScript.ORDER_NONE];
+    }
+    return [`interpreter.motion_yposition(interpreter.currentSpriteId)`, Blockly.JavaScript.ORDER_NONE];
   };
 
   Blockly.JavaScript['motion_glideto_menu'] = function(block) {
     const dropdown = getFieldValue(block, 'DROPDOWN') || 'x_position';
-    return [dropdown, Blockly.JavaScript.ORDER_NONE];
+    if (dropdown === 'x_position') {
+      return [`interpreter.motion_xposition(interpreter.currentSpriteId)`, Blockly.JavaScript.ORDER_NONE];
+    }
+    return [`interpreter.motion_yposition(interpreter.currentSpriteId)`, Blockly.JavaScript.ORDER_NONE];
   };
 
   // Looks blocks
@@ -175,7 +181,7 @@ export const registerGenerators = (Blockly) => {
   };
 
   Blockly.JavaScript['looks_switchcostumeto'] = function(block) {
-    const costume = getFieldValue(block, 'COSTUME');
+    const costume = Blockly.JavaScript.variableDB_?.getName(block.getFieldValue('COSTUME'), Blockly.Variables.NAME_TYPE) || '造型1';
     return `await interpreter.looks_switchcostumeto(interpreter.currentSpriteId, '${costume}');\n`;
   };
 
@@ -255,12 +261,12 @@ export const registerGenerators = (Blockly) => {
 
   // Sound blocks
   Blockly.JavaScript['sound_play'] = function(block) {
-    const sound = getFieldValue(block, 'SOUND');
+    const sound = Blockly.JavaScript.variableDB_?.getName(block.getFieldValue('SOUND'), Blockly.Variables.NAME_TYPE) || 'pop';
     return `await interpreter.sound_play(interpreter.currentSpriteId, '${sound}');\n`;
   };
 
   Blockly.JavaScript['sound_playuntildone'] = function(block) {
-    const sound = getFieldValue(block, 'SOUND');
+    const sound = Blockly.JavaScript.variableDB_?.getName(block.getFieldValue('SOUND'), Blockly.Variables.NAME_TYPE) || 'pop';
     return `await interpreter.sound_playuntildone(interpreter.currentSpriteId, '${sound}');\n`;
   };
 
@@ -343,13 +349,15 @@ export const registerGenerators = (Blockly) => {
 
   Blockly.JavaScript['event_whenbackdropswitchto'] = function(block) {
     const backdrop = getFieldValue(block, 'BACKDROP');
-    return `// 当背景切换到 ${backdrop}\n`;
+    const doCode = Blockly.JavaScript.statementToCode(block, 'HANDLER') || '';
+    return `// 当背景切换到 ${backdrop}\nawait interpreter.event_whenbackdropswitchto(interpreter.currentSpriteId, '${backdrop}', async () => {\n${doCode}});\n`;
   };
 
   Blockly.JavaScript['event_whengreaterthan'] = function(block) {
     const property = getFieldValue(block, 'WHENGREATERTHANMENU');
     const value = getValue(block, 'VALUE', 0);
-    return `// 当 ${property} > ${value}\n`;
+    const doCode = Blockly.JavaScript.statementToCode(block, 'HANDLER') || '';
+    return `// 当 ${property} > ${value}\nawait interpreter.event_whengreaterthan(interpreter.currentSpriteId, '${property}', ${value}, async () => {\n${doCode}});\n`;
   };
 
   Blockly.JavaScript['event_broadcast'] = function(block) {
@@ -380,6 +388,11 @@ export const registerGenerators = (Blockly) => {
     return `await interpreter.control_wait(interpreter.currentSpriteId, ${secs});\n`;
   };
 
+  Blockly.JavaScript['control_wait_until'] = function(block) {
+    const condition = Blockly.JavaScript.valueToCode(block, 'CONDITION', Blockly.JavaScript.ORDER_NONE) || 'false';
+    return `await interpreter.control_wait_until(interpreter.currentSpriteId, () => !!(${condition}));\n`;
+  };
+
   Blockly.JavaScript['control_repeat'] = function(block) {
     const times = getValue(block, 'TIMES', 10);
     const substack = Blockly.JavaScript.statementToCode(block, 'SUBSTACK') || '';
@@ -393,8 +406,10 @@ export const registerGenerators = (Blockly) => {
   Blockly.JavaScript['control_repeat_until'] = function(block) {
     const condition = Blockly.JavaScript.valueToCode(block, 'CONDITION', Blockly.JavaScript.ORDER_NONE) || 'false';
     const substack = Blockly.JavaScript.statementToCode(block, 'SUBSTACK') || '';
+    // The interpreter's control_repeat_until already uses `while (!condition())`,
+    // so we pass the condition as-is (repeat until condition becomes true).
     return `(async () => {
-      await interpreter.control_repeat_until(interpreter.currentSpriteId, () => !(${condition}), async () => {
+      await interpreter.control_repeat_until(interpreter.currentSpriteId, () => !!(${condition}), async () => {
         ${substack}
       });
     })();\n`;
@@ -441,7 +456,7 @@ export const registerGenerators = (Blockly) => {
   };
 
   Blockly.JavaScript['control_create_clone_of'] = function(block) {
-    const target = getFieldValue(block, 'CLONE_OPTION') || 'Sprite1';
+    const target = Blockly.JavaScript.variableDB_?.getName(block.getFieldValue('CLONE_OPTION'), Blockly.Variables.NAME_TYPE) || '角色1';
     return `await interpreter.control_create_clone_of(interpreter.currentSpriteId, '${target}');\n`;
   };
 
@@ -452,7 +467,7 @@ export const registerGenerators = (Blockly) => {
   // Sensing blocks
   Blockly.JavaScript['sensing_touching'] = function(block) {
     const target = getFieldValue(block, 'TOUCHINGOBJECT') || '_mouse_';
-    const sprite = block.getFieldValue('SPRITE') || '角色1';
+    const sprite = Blockly.JavaScript.variableDB_?.getName(block.getFieldValue('SPRITE'), Blockly.Variables.NAME_TYPE) || '角色1';
     const targetSprite = (target === '_mouse_' || target === '_edge_') ? target : sprite;
     return [`interpreter.sensing_touching(interpreter.currentSpriteId, '${targetSprite}')`, Blockly.JavaScript.ORDER_NONE];
   };
@@ -470,9 +485,14 @@ export const registerGenerators = (Blockly) => {
 
   Blockly.JavaScript['sensing_distanceto'] = function(block) {
     const target = getFieldValue(block, 'DISTANCETOMENU') || '_mouse_';
-    const sprite = block.getFieldValue('SPRITE') || '角色1';
+    const sprite = Blockly.JavaScript.variableDB_?.getName(block.getFieldValue('SPRITE'), Blockly.Variables.NAME_TYPE) || '角色1';
     const targetSprite = (target === '_mouse_' || target === '_random_') ? target : sprite;
     return [`interpreter.sensing_distanceto(interpreter.currentSpriteId, '${targetSprite}')`, Blockly.JavaScript.ORDER_NONE];
+  };
+
+  Blockly.JavaScript['sensing_distancetomenu'] = function(block) {
+    const dropdown = getFieldValue(block, 'DROPDOWN') || '_mouse_';
+    return [`'${dropdown}'`, Blockly.JavaScript.ORDER_NONE];
   };
 
   Blockly.JavaScript['sensing_askandwait'] = function(block) {
@@ -631,6 +651,12 @@ export const registerGenerators = (Blockly) => {
     return [`interpreter.operator_mathop(interpreter.currentSpriteId, '${op}', ${num})`, Blockly.JavaScript.ORDER_NONE];
   };
 
+  Blockly.JavaScript['operator_contains'] = function(block) {
+    const str1 = Blockly.JavaScript.valueToCode(block, 'STRING1', Blockly.JavaScript.ORDER_NONE) || '""';
+    const str2 = Blockly.JavaScript.valueToCode(block, 'STRING2', Blockly.JavaScript.ORDER_NONE) || '""';
+    return [`String(${str1}).includes(String(${str2}))`, Blockly.JavaScript.ORDER_NONE];
+  };
+
   // Data/Variable blocks
   Blockly.JavaScript['data_variable'] = function(block) {
     const variable = Blockly.JavaScript.variableDB_.getName(block.getFieldValue('VARIABLE'), Blockly.Variables.NAME_TYPE) || 'myVariable';
@@ -667,21 +693,21 @@ export const registerGenerators = (Blockly) => {
   };
 
   Blockly.JavaScript['data_deleteoflist'] = function(block) {
-    const index = getFieldValue(block, 'INDEX') || '1';
+    const index = getValue(block, 'INDEX', 1);
     const list = Blockly.JavaScript.variableDB_.getName(block.getFieldValue('LIST'), Blockly.Variables.NAME_TYPE) || 'myList';
     return `await interpreter.data_deleteoflist(interpreter.currentSpriteId, ${index}, '${list}');\n`;
   };
 
   Blockly.JavaScript['data_inserttolist'] = function(block) {
     const item = Blockly.JavaScript.valueToCode(block, 'ITEM', Blockly.JavaScript.ORDER_NONE) || '""';
-    const index = getFieldValue(block, 'INDEX') || '1';
+    const index = getValue(block, 'INDEX', 1);
     const list = Blockly.JavaScript.variableDB_.getName(block.getFieldValue('LIST'), Blockly.Variables.NAME_TYPE) || 'myList';
     return `await interpreter.data_inserttolist(interpreter.currentSpriteId, ${item}, ${index}, '${list}');\n`;
   };
 
   Blockly.JavaScript['data_itemoflist'] = function(block) {
     const list = Blockly.JavaScript.variableDB_.getName(block.getFieldValue('LIST'), Blockly.Variables.NAME_TYPE) || 'myList';
-    const index = getFieldValue(block, 'INDEX') || '1';
+    const index = getValue(block, 'INDEX', 1);
     return [`interpreter.data_itemoflist(interpreter.currentSpriteId, ${index}, '${list}')`, Blockly.JavaScript.ORDER_NONE];
   };
 
@@ -718,7 +744,7 @@ export const registerGenerators = (Blockly) => {
 
   Blockly.JavaScript['data_replaceitemoflist'] = function(block) {
     const list = Blockly.JavaScript.variableDB_.getName(block.getFieldValue('LIST'), Blockly.Variables.NAME_TYPE) || 'myList';
-    const index = getFieldValue(block, 'INDEX') || '1';
+    const index = getValue(block, 'INDEX', 1);
     const item = Blockly.JavaScript.valueToCode(block, 'ITEM', Blockly.JavaScript.ORDER_NONE) || '""';
     return `await interpreter.data_replaceitemoflist(interpreter.currentSpriteId, ${index}, '${list}', ${item});\n`;
   };
@@ -781,33 +807,6 @@ export const registerPythonGenerators = (Blockly) => {
   Blockly.Python['motion_move_steps'] = function(block) {
     const steps = getValue(block, 'STEPS', 10);
     return `move(${steps})\n`;
-  };
-
-  Blockly.Python['motion_turn_right'] = function(block) {
-    const degrees = getValue(block, 'DEGREES', 15);
-    return `turn_right(${degrees})\n`;
-  };
-
-  Blockly.Python['motion_turn_left'] = function(block) {
-    const degrees = getValue(block, 'DEGREES', 15);
-    return `turn_left(${degrees})\n`;
-  };
-
-  Blockly.Python['motion_gotoxy'] = function(block) {
-    const x = getValue(block, 'X', 0);
-    const y = getValue(block, 'Y', 0);
-    return `go_to(${x}, ${y})\n`;
-  };
-
-  Blockly.Python['motion_glideto'] = function(block) {
-    const secs = getValue(block, 'SECS', 1);
-    const x = getValue(block, 'X', 0);
-    const y = getValue(block, 'Y', 0);
-    return `glide(${secs}, ${x}, ${y})\n`;
-  };
-
-  Blockly.Python['motion_ifonedgebounce'] = function(block) {
-    return `if_on_edge_bounce()\n`;
   };
 
   Blockly.Python['looks_say'] = function(block) {
@@ -924,12 +923,6 @@ export const registerPythonGenerators = (Blockly) => {
     return [`random.randint(${from}, ${to})`, Blockly.Python.ORDER_FUNCTION_CALL];
   };
 
-  Blockly.Python['operator_mod'] = function(block) {
-    const num1 = Blockly.Python.valueToCode(block, 'NUM1', Blockly.Python.ORDER_MODULUS) || '0';
-    const num2 = Blockly.Python.valueToCode(block, 'NUM2', Blockly.Python.ORDER_MODULUS) || '1';
-    return [`${num1} % ${num2}`, Blockly.Python.ORDER_MODULUS];
-  };
-
   Blockly.Python['operator_round'] = function(block) {
     const num = Blockly.Python.valueToCode(block, 'NUM', Blockly.Python.ORDER_NONE) || '0';
     return [`round(${num})`, Blockly.Python.ORDER_FUNCTION_CALL];
@@ -967,10 +960,6 @@ export const registerPythonGenerators = (Blockly) => {
 
   Blockly.Python['sensing_mousey'] = function(block) {
     return [`mouse_y()`, Blockly.Python.ORDER_FUNCTION_CALL];
-  };
-
-  Blockly.Python['sensing_timer'] = function(block) {
-    return [`timer()`, Blockly.Python.ORDER_FUNCTION_CALL];
   };
 
   Blockly.Python['event_whenflagclicked'] = function(block) {
@@ -1081,6 +1070,11 @@ export const registerPythonGenerators = (Blockly) => {
     return [`datetime.datetime.now().${menuMap[menu] || 'year'}`, Blockly.Python.ORDER_FUNCTION_CALL];
   };
 
+  Blockly.Python['sensing_distancetomenu'] = function(block) {
+    const dropdown = getFieldValue(block, 'DROPDOWN') || '_mouse_';
+    return [dropdown, Blockly.Python.ORDER_NONE];
+  };
+
   Blockly.Python['looks_switchcostumeto'] = function(block) {
     const costume = getFieldValue(block, 'COSTUME') || 'costume1';
     return `switch_costume('${costume}')\n`;
@@ -1098,39 +1092,6 @@ export const registerPythonGenerators = (Blockly) => {
   Blockly.Python['looks_setsizeto'] = function(block) {
     const size = getValue(block, 'SIZE', 100);
     return `set_size(${size})\n`;
-  };
-
-  Blockly.Python['looks_show'] = function(block) {
-    return `show()\n`;
-  };
-
-  Blockly.Python['looks_hide'] = function(block) {
-    return `hide()\n`;
-  };
-
-  Blockly.Python['looks_cleargraphiceffects'] = function(block) {
-    return `clear_graphic_effects()\n`;
-  };
-
-  Blockly.Python['looks_changeeffectby'] = function(block) {
-    const effect = getFieldValue(block, 'EFFECT') || 'color';
-    const change = getValue(block, 'CHANGE', 0);
-    return `change_graphic_effect('${effect}', ${change})\n`;
-  };
-
-  Blockly.Python['looks_seteffectto'] = function(block) {
-    const effect = getFieldValue(block, 'EFFECT') || 'color';
-    const value = getValue(block, 'VALUE', 0);
-    return `set_graphic_effect('${effect}', ${value})\n`;
-  };
-
-  Blockly.Python['looks_switchbackdropto'] = function(block) {
-    const backdrop = getFieldValue(block, 'BACKDROP') || 'backdrop1';
-    return `switch_backdrop('${backdrop}')\n`;
-  };
-
-  Blockly.Python['looks_nextbackdrop'] = function(block) {
-    return `next_backdrop()\n`;
   };
 
   Blockly.Python['looks_costumename'] = function(block) {
@@ -1395,3 +1356,8 @@ export const registerPythonGenerators = (Blockly) => {
     return `next_backdrop()\n`;
   };
 };
+
+// CommonJS compatibility: allow require() in Node.js test files
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { registerGenerators, registerPythonGenerators };
+}

@@ -582,23 +582,6 @@ const CodeMirrorEditor = ({ value, onChange, fontSize = 14, onRun, theme = 'dark
     };
   }, []); // Only run once on mount
 
-  // Update font size when it changes
-  useEffect(() => {
-    if (viewRef.current) {
-      viewRef.current.dispatch({
-        effects: EditorView.theme({
-          '.cm-content': {
-            fontSize: `${fontSize}px`,
-            lineHeight: '1.6',
-          },
-          '.cm-gutters': {
-            fontSize: `${fontSize - 2}px`,
-          },
-        }).of([]),
-      });
-    }
-  }, [fontSize]);
-
   // Sync external value changes
   useEffect(() => {
     if (viewRef.current && value !== viewRef.current.state.doc.toString()) {
@@ -2346,8 +2329,7 @@ class PythonCodeExecutor {
 
       const fn = new Function(
         ...allParamNames, '__print', '__input',
-        `"use strict";
-        ${nsBuilders.join('\n        ')}
+        `${nsBuilders.join('\n        ')}
         const __format = (v) => {
           if (v === null) return 'None';
           if (v === undefined) return 'None';
@@ -2410,6 +2392,7 @@ const PythonEditor = () => {
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [inputVisible, setInputVisible] = useState(false);
   const [inputPrompt, setInputPrompt] = useState('');
+  const [inputValue, setInputValue] = useState('');
   const [inputResolve, setInputResolve] = useState(null);
   const [showTurtle, setShowTurtle] = useState(false);
   const [turtleCanvasSize, setTurtleCanvasSize] = useState({ width: 500, height: 400 });
@@ -2437,8 +2420,10 @@ const PythonEditor = () => {
 
   const handleInput = useCallback((prompt, resolve) => {
     setInputPrompt(prompt);
+    setInputValue('');
     setInputVisible(true);
-    setInputResolve(() => resolve);
+    // Wrap in a function so React doesn't treat resolve as a state updater
+    setInputResolve(() => (value) => resolve(value));
   }, []);
 
   useEffect(() => {
@@ -2469,6 +2454,9 @@ const PythonEditor = () => {
       executorRef.current.stop();
       setIsRunning(false);
       setInputVisible(false);
+      setInputPrompt('');
+      setInputValue('');
+      setInputResolve(null);
     }
   };
 
@@ -2481,10 +2469,11 @@ const PythonEditor = () => {
 
   const handleInputSubmit = () => {
     if (inputResolve) {
-      inputResolve(inputPrompt);
+      inputResolve(inputValue);
       setInputResolve(null);
       setInputVisible(false);
       setInputPrompt('');
+      setInputValue('');
     }
   };
 
@@ -2826,20 +2815,39 @@ turtle.circle(50)`}
 
       {/* Input Modal */}
       <Modal
-        title="输入"
+        title="Python input()"
         open={inputVisible}
-        onCancel={() => { setInputVisible(false); if (inputResolve) inputResolve(''); }}
+        onCancel={() => {
+          setInputVisible(false);
+          setInputPrompt('');
+          setInputValue('');
+          setInputResolve(null);
+          if (inputResolve) inputResolve('');
+        }}
         footer={null}
+        maskClosable={false}
+        closable={true}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="large">
-          <div style={{ fontSize: 16, padding: '8px 0' }}>{inputPrompt || '请输入:'}</div>
+          <div style={{ fontSize: 14, padding: '8px 0', color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+            {inputPrompt || '请输入:'}
+          </div>
           <Input
-            value={inputPrompt}
-            onChange={(e) => setInputPrompt(e.target.value)}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
             onPressEnter={handleInputSubmit}
+            placeholder="输入内容后按回车..."
             autoFocus
           />
-          <Button type="primary" onClick={handleInputSubmit}>确定</Button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              type="primary"
+              onClick={handleInputSubmit}
+              disabled={inputValue === ''}
+            >
+              确定
+            </Button>
+          </div>
         </Space>
       </Modal>
 

@@ -1,9 +1,19 @@
-import { useEffect, useState } from 'react';
-import { Card, Row, Col, Upload, Button, Tag, Modal, Form, Input, Select, message, Empty, Spin, Progress, Statistic } from 'antd';
-import { InboxOutlined, PictureOutlined, VideoCameraOutlined, AudioOutlined, FileOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, UploadOutlined, SearchOutlined } from '@ant-design/icons';
+import { useEffect, useState, useCallback } from 'react';
+import { Card, Row, Col, Button, Tag, Modal, Form, Input, Select, message, Empty, Spin, Statistic, Pagination, Space } from 'antd';
+import { PictureOutlined, VideoCameraOutlined, AudioOutlined, FileOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, UploadOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  getMaterials,
+  searchMaterials,
+  getMaterialStats,
+  getMaterial,
+  createMaterial,
+  deleteMaterial,
+  recordDownload,
+} from '../../services/api';
 
 const { Option } = Select;
-const { Dragger } = Upload;
+
+const PAGE_SIZE = 20;
 
 const typeMap = {
   image: { icon: <PictureOutlined />, color: '#1890ff', label: '图片' },
@@ -17,141 +27,145 @@ export default function MaterialsPage() {
   const [materials, setMaterials] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [stats, setStats] = useState({ total: 0, byType: {}, totalSize: 0 });
   const [typeFilter, setTypeFilter] = useState(null);
+  const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState(null);
   const [form] = Form.useForm();
 
-  const fetchMaterials = async (resetPage = false) => {
+  const buildFilters = useCallback(() => {
+    const filters = { page, pageSize: PAGE_SIZE };
+    if (typeFilter) filters.type = typeFilter;
+    return filters;
+  }, [page, typeFilter]);
+
+  const fetchMaterials = useCallback(async (overridePage) => {
+    setError(null);
     setLoading(true);
     try {
-      const currentPage = resetPage ? 1 : page;
-      const params = new URLSearchParams();
-      params.append('page', currentPage.toString());
-      params.append('pageSize', pageSize.toString());
-      if (typeFilter) params.append('type', typeFilter);
+      const currentPage = overridePage ?? page;
+      const filters = { page: currentPage, pageSize: PAGE_SIZE };
+      if (typeFilter) filters.type = typeFilter;
 
-      const res = await fetch(`/api/materials?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      }).then(r => r.json());
+      let res;
+      if (keyword.trim()) {
+        res = await searchMaterials(keyword.trim(), filters);
+      } else {
+        res = await getMaterials(filters);
+      }
 
-      if (res.status === 200) {
+      if (res?.status === 200 && res.result) {
         setMaterials(res.result.materials || []);
         setTotal(res.result.total || 0);
+      } else {
+        setMaterials([]);
+        setTotal(0);
+        setError(res?.msg || '获取素材列表失败');
       }
-    } catch (error) {
-      console.error('Failed to fetch materials:', error);
+    } catch (err) {
+      console.error('Failed to fetch materials:', err);
+      setError(err?.response?.data?.msg || err?.message || '获取素材列表失败，请检查网络后重试');
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, typeFilter, keyword]);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch('/api/materials/stats', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      }).then(r => r.json());
-      if (res.status === 200) {
-        setStats(res.result || { total: 0, byType: {}, totalSize: 0 });
+      const res = await getMaterialStats();
+      if (res?.status === 200 && res.result) {
+        setStats(res.result);
       }
     } catch (error) {
       console.error('Failed to fetch stats:', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchMaterials();
-    fetchStats();
-  }, [page, typeFilter]);
+  }, [fetchMaterials]);
 
-  const handleUpload = async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('name', file.name);
-    formData.append('size', file.size.toString());
-    formData.append('mimeType', file.type);
-    formData.append('type', getFileType(file.type));
-    formData.append('url', URL.createObjectURL(file));
-    return false;
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  const handleSearch = (value) => {
+    setKeyword(value.trim());
+    setPage(1);
   };
 
-  const getFileType = (mimeType) => {
-    if (mimeType.startsWith('image/')) return 'image';
-    if (mimeType.startsWith('video/')) return 'video';
-    if (mimeType.startsWith('audio/')) return 'audio';
-    if (mimeType.includes('document') || mimeType.includes('pdf') || mimeType.includes('word')) return 'document';
-    return 'other';
+  const handleTypeFilterChange = (value) => {
+    setTypeFilter(value);
+    setPage(1);
   };
 
   const handleAddMaterial = async (values) => {
     try {
-      const res = await fetch('/api/materials', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-        },
-        body: JSON.stringify(values),
-      }).then(r => r.json());
-
-      if (res.status === 200) {
+      const payload = { ...values };
+      if (typeof payload.isPublic === 'string') {
+        payload.isPublic = payload.isPublic === 'true';
+      }
+      if (payload.tags && typeof payload.tags === 'string') {
+        payload.tags = payload.tags.split(',').map((t) => t.trim()).filter(Boolean);
+      }
+      const res = await createMaterial(payload);
+      if (res?.status === 200) {
         message.success('素材添加成功');
         setIsModalOpen(false);
         form.resetFields();
-        fetchMaterials(true);
-        fetchStats();
+        setPage(1);
       } else {
-        message.error('添加失败');
+        message.error(res?.msg || '添加失败');
       }
-    } catch (error) {
-      message.error('添加失败');
+    } catch (err) {
+      message.error(err?.response?.data?.msg || '添加失败');
     }
   };
 
   const handleDelete = async (id) => {
     try {
-      const res = await fetch(`/api/materials/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      }).then(r => r.json());
-
-      if (res.status === 200) {
+      const res = await deleteMaterial(id);
+      if (res?.status === 200) {
         message.success('删除成功');
-        fetchMaterials();
+        // If we deleted the last item on this page, go back one page
+        if (materials.length === 1 && page > 1) {
+          setPage(page - 1);
+        } else {
+          fetchMaterials();
+        }
         fetchStats();
+      } else {
+        message.error(res?.msg || '删除失败');
       }
-    } catch (error) {
-      message.error('删除失败');
+    } catch (err) {
+      message.error(err?.response?.data?.msg || '删除失败');
     }
   };
 
   const handleDownload = async (id) => {
     try {
-      await fetch(`/api/materials/${id}/download`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      });
+      await recordDownload(id);
       message.success('下载次数已记录');
-    } catch (error) {
-      console.error('Failed to record download:', error);
+    } catch (err) {
+      console.error('Failed to record download:', err);
     }
   };
 
   const showDetail = async (id) => {
     try {
-      const res = await fetch(`/api/materials/${id}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-      }).then(r => r.json());
-      if (res.status === 200) {
+      const res = await getMaterial(id);
+      if (res?.status === 200 && res.result) {
         setSelectedMaterial(res.result);
         setIsDetailOpen(true);
+      } else {
+        message.error('获取素材详情失败');
       }
-    } catch (error) {
-      console.error('Failed to fetch material:', error);
+    } catch (err) {
+      message.error('获取素材详情失败');
     }
   };
 
@@ -161,6 +175,92 @@ export default function MaterialsPage() {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  };
+
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <div style={{ textAlign: 'center', padding: 80 }}>
+          <Spin size="large" />
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div style={{ textAlign: 'center', padding: 40 }}>
+          <Empty description={error} />
+          <Button type="primary" onClick={() => fetchMaterials()} style={{ marginTop: 16 }}>
+            重试
+          </Button>
+        </div>
+      );
+    }
+
+    if (materials.length === 0) {
+      const desc = keyword.trim()
+        ? `未找到与"${keyword.trim()}"相关的素材`
+        : typeFilter
+          ? `暂无"${typeMap[typeFilter]?.label || typeFilter}"类型的素材`
+          : '暂无素材，点击右上角上传';
+      return <Empty description={desc} style={{ padding: 40 }} />;
+    }
+
+    return (
+      <>
+        <Row gutter={[16, 16]}>
+          {materials.map((material) => {
+            const typeInfo = typeMap[material.type] || typeMap.other;
+            return (
+              <Col xs={24} sm={12} md={8} lg={6} key={material.id}>
+                <Card
+                  hoverable
+                  cover={
+                    material.type === 'image' ? (
+                      <div style={{ height: 150, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
+                        <img src={material.thumbnailUrl || material.url} alt={material.name} style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'cover' }} />
+                      </div>
+                    ) : (
+                      <div style={{ height: 150, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5', fontSize: 48, color: typeInfo.color }}>
+                        {typeInfo.icon}
+                      </div>
+                    )
+                  }
+                  actions={[
+                    <EyeOutlined key="view" onClick={() => showDetail(material.id)} />,
+                    <DownloadOutlined key="download" onClick={() => handleDownload(material.id)} />,
+                    <DeleteOutlined key="delete" onClick={() => handleDelete(material.id)} />,
+                  ]}
+                >
+                  <Card.Meta
+                    title={material.name}
+                    description={
+                      <div>
+                        <Tag color={typeInfo.color}>{typeInfo.label}</Tag>
+                        <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
+                          {formatSize(material.size)} | {material.views} 次浏览 | {material.downloads} 次下载
+                        </div>
+                      </div>
+                    }
+                  />
+                </Card>
+              </Col>
+            );
+          })}
+        </Row>
+
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <Pagination
+            current={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onChange={setPage}
+            showSizeChanger={false}
+            showTotal={(t) => `共 ${t} 条素材`}
+          />
+        </div>
+      </>
+    );
   };
 
   return (
@@ -189,14 +289,21 @@ export default function MaterialsPage() {
           </Col>
         </Row>
 
-        {/* Filter */}
-        <div style={{ marginBottom: 24 }}>
-          <span style={{ marginRight: 8 }}>筛选类型:</span>
+        {/* Search and Filter */}
+        <Space style={{ marginBottom: 24 }} wrap>
+          <Input.Search
+            placeholder="搜索素材名称..."
+            allowClear
+            onSearch={handleSearch}
+            style={{ width: 280 }}
+            enterButton={<><SearchOutlined /> 搜索</>}
+          />
+          <span style={{ marginLeft: 8 }}>筛选类型:</span>
           <Select
             placeholder="选择类型"
             allowClear
-            style={{ width: 200 }}
-            onChange={(value) => { setTypeFilter(value); setPage(1); }}
+            style={{ width: 160 }}
+            onChange={handleTypeFilterChange}
             value={typeFilter}
           >
             <Option value="image">图片</Option>
@@ -205,71 +312,14 @@ export default function MaterialsPage() {
             <Option value="document">文档</Option>
             <Option value="other">其他</Option>
           </Select>
-        </div>
+        </Space>
 
-        {/* Materials Grid */}
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 80 }}>
-            <Spin size="large" />
-          </div>
-        ) : materials.length === 0 ? (
-          <Empty description="暂无素材" style={{ padding: 40 }} />
-        ) : (
-          <>
-            <Row gutter={[16, 16]}>
-              {materials.map((material) => {
-                const typeInfo = typeMap[material.type] || typeMap.other;
-                return (
-                  <Col xs={24} sm={12} md={8} lg={6} key={material.id}>
-                    <Card
-                      hoverable
-                      cover={
-                        material.type === 'image' ? (
-                          <div style={{ height: 150, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
-                            <img src={material.thumbnailUrl || material.url} alt={material.name} style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'cover' }} />
-                          </div>
-                        ) : (
-                          <div style={{ height: 150, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5', fontSize: 48, color: typeInfo.color }}>
-                            {typeInfo.icon}
-                          </div>
-                        )
-                      }
-                      actions={[
-                        <EyeOutlined key="view" onClick={() => showDetail(material.id)} />,
-                        <DownloadOutlined key="download" onClick={() => handleDownload(material.id)} />,
-                        <DeleteOutlined key="delete" onClick={() => handleDelete(material.id)} />,
-                      ]}
-                    >
-                      <Card.Meta
-                        title={material.name}
-                        description={
-                          <div>
-                            <Tag color={typeInfo.color}>{typeInfo.label}</Tag>
-                            <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
-                              {formatSize(material.size)} | {material.views} 次浏览 | {material.downloads} 次下载
-                            </div>
-                          </div>
-                        }
-                      />
-                    </Card>
-                  </Col>
-                );
-              })}
-            </Row>
-
-            {/* Pagination */}
-            <div style={{ textAlign: 'center', marginTop: 24 }}>
-              <Button disabled={page === 1} onClick={() => setPage(page - 1)}>上一页</Button>
-              <span style={{ margin: '0 16px' }}>第 {page} / {Math.ceil(total / pageSize)} 页</span>
-              <Button disabled={page * pageSize >= total} onClick={() => setPage(page + 1)}>下一页</Button>
-            </div>
-          </>
-        )}
+        {renderContent()}
       </Card>
 
       {/* Upload Modal */}
       <Modal
-        title="上传素材"
+        title="添加素材"
         open={isModalOpen}
         onCancel={() => { setIsModalOpen(false); form.resetFields(); }}
         footer={null}
@@ -295,6 +345,14 @@ export default function MaterialsPage() {
 
           <Form.Item name="thumbnailUrl" label="缩略图URL">
             <Input placeholder="请输入缩略图URL（可选）" />
+          </Form.Item>
+
+          <Form.Item name="size" label="文件大小(字节)">
+            <Input type="number" placeholder="文件大小（可选）" />
+          </Form.Item>
+
+          <Form.Item name="mimeType" label="MIME类型">
+            <Input placeholder="如 image/png（可选）" />
           </Form.Item>
 
           <Form.Item name="description" label="描述">

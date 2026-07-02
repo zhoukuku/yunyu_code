@@ -135,7 +135,7 @@ const { chromium } = require('playwright');
         console.log(`FOUND: ${route} - ${content.text.substring(0, 100)}`);
         await page.screenshot({ path: `e:/k/meee/code/project01${route.replace(/\//g, '_')}.png`, fullPage: true });
       }
-    } catch (e) {}
+    } catch (e) { console.error(`Failed to analyze route ${route}:`, e.message); }
   }
 
   // Try class detail by clicking

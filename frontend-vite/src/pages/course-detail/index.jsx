@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Row, Col, Descriptions, Tag, Button, List, Progress, Spin, message } from 'antd';
 import { BookOutlined, UserOutlined, ClockCircleOutlined, TeamOutlined, PlayCircleOutlined, CheckCircleOutlined, LeftOutlined } from '@ant-design/icons';
-import { getCourseDetail, getLessons, enrollCourse, isEnrolled } from '../../services/api';
+import { getCourseDetail, enrollCourse, isEnrolled } from '../../services/api';
+import { safeGetItem, safeGetJSON, safeSetJSON } from '../../utils/storage';
 import './index.less';
 
 const difficultyText = ['', '入门', '简单', '中等', '困难', '专家'];
@@ -16,19 +17,13 @@ export default function CourseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [enrolled, setEnrolled] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
-    if (id) {
-      loadCourseDetail();
-    }
-  }, [id]);
-
-  const loadCourseDetail = async () => {
+  const loadCourseDetail = useCallback(async () => {
     try {
       setLoading(true);
-      const [courseRes] = await Promise.all([
-        getCourseDetail(id),
-      ]);
+      setLoadError(false);
+      const courseRes = await getCourseDetail(id);
 
       if (courseRes.status === 200 && courseRes.result) {
         setCourse(courseRes.result);
@@ -40,22 +35,29 @@ export default function CourseDetailPage() {
           setEnrolled(enrolledRes.result === true);
         } catch (e) {
           // If not logged in, check localStorage
-          const enrolledCourses = JSON.parse(localStorage.getItem('enrolledCourses') || '[]');
+          const enrolledCourses = safeGetJSON('enrolledCourses', []);
           setEnrolled(enrolledCourses.includes(Number(id)));
         }
       } else {
-        message.error('课程不存在');
+        message.error(courseRes.msg || '课程不存在');
       }
     } catch (e) {
       console.error('加载课程详情失败', e);
-      message.error('加载课程详情失败');
+      setLoadError(true);
+      message.error('加载课程详情失败，请检查网络后重试');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    if (id) {
+      loadCourseDetail();
+    }
+  }, [id, loadCourseDetail]);
 
   const handleEnroll = async () => {
-    const token = localStorage.getItem('accessToken');
+    const token = safeGetItem('accessToken');
     if (!token) {
       message.info('请先登录');
       navigate('/login');
@@ -68,44 +70,65 @@ export default function CourseDetailPage() {
       if (res.status === 200) {
         setEnrolled(true);
         message.success('加入课程成功');
+      } else {
+        message.error(res.msg || '加入课程失败');
       }
     } catch (e) {
-      // Fallback to localStorage
-      const enrolledCourses = JSON.parse(localStorage.getItem('enrolledCourses') || '[]');
-      if (!enrolledCourses.includes(Number(id))) {
-        enrolledCourses.push(Number(id));
-        localStorage.setItem('enrolledCourses', JSON.stringify(enrolledCourses));
+      // Only fallback to localStorage for network errors (no server response)
+      if (e.response) {
+        const msg =
+          e.response.data?.msg ||
+          e.response.data?.message ||
+          '加入课程失败，请稍后重试';
+        message.error(msg);
+      } else {
+        // Network error — fallback to localStorage
+        const enrolledCourses = safeGetJSON('enrolledCourses', []);
+        if (!enrolledCourses.includes(Number(id))) {
+          enrolledCourses.push(Number(id));
+          safeSetJSON('enrolledCourses', enrolledCourses);
+        }
+        setEnrolled(true);
+        message.success('加入课程成功（离线模式）');
       }
-      setEnrolled(true);
-      message.success('加入课程成功');
     } finally {
       setEnrolling(false);
     }
   };
 
   const handleStartLearning = () => {
+    if (!lessons || lessons.length === 0) {
+      message.info('暂无课时可学习');
+      return;
+    }
     const firstUncompleted = lessons.find(l => !l.isCompleted);
     const targetLesson = firstUncompleted || lessons[0];
-    if (targetLesson) {
-      navigate(`/courses/${id}/lessons/${targetLesson.id}`);
-    } else {
-      message.info('暂无课时可学习');
-    }
-  };
-
-  const handleContinueLearning = () => {
-    const firstUncompleted = lessons.find(l => !l.isCompleted);
-    if (firstUncompleted) {
-      navigate(`/courses/${id}/lessons/${firstUncompleted.id}`);
-    } else {
-      navigate(`/courses/${id}/lessons/${lessons[0].id}`);
-    }
+    navigate(`/courses/${id}/lessons/${targetLesson.id}`);
   };
 
   if (loading) {
     return (
       <div className="course-detail-loading">
         <Spin size="large" tip="加载中..." />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="course-detail-page">
+        <Card>
+          <div style={{ textAlign: 'center', padding: 50 }}>
+            <h2>加载失败</h2>
+            <p style={{ color: '#999' }}>加载课程详情失败，请检查网络后重试</p>
+            <Button type="primary" onClick={loadCourseDetail} style={{ marginRight: 8 }}>
+              重新加载
+            </Button>
+            <Button onClick={() => navigate('/course')}>
+              返回课程中心
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }
@@ -245,7 +268,7 @@ export default function CourseDetailPage() {
                   开始学习
                 </Button>
               ) : (
-                <Button type="primary" size="large" block onClick={handleContinueLearning}>
+                <Button type="primary" size="large" block onClick={handleStartLearning}>
                   继续学习
                 </Button>
               )}

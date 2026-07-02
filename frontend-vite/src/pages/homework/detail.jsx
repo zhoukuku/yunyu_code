@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Descriptions, Button, Space, Tag, Modal, Form, Input, message, Spin, Select, Tabs, Divider } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getHomework, submitHomework, getMySubmissions } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 
 const { TextArea } = Input;
-const { TabPane } = Tabs;
 
 export default function HomeworkDetailPage() {
   const { id } = useParams();
@@ -17,16 +17,12 @@ export default function HomeworkDetailPage() {
   const [codeLanguage, setCodeLanguage] = useState('python');
   const [form] = Form.useForm();
 
-  useEffect(() => {
-    fetchData();
-  }, [id]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [hwRes, subRes] = await Promise.all([
         getHomework(id),
-        getMySubmissions({ studentId: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).id : 0 }),
+        getMySubmissions({ studentId: safeGetJSON('user', {})?.id || 0 }),
       ]);
 
       if (hwRes.status === 200) {
@@ -42,7 +38,11 @@ export default function HomeworkDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleSubmit = async () => {
     try {
@@ -50,7 +50,7 @@ export default function HomeworkDetailPage() {
       setSubmitting(true);
       const res = await submitHomework(id, {
         content: values.content,
-        studentId: JSON.parse(localStorage.getItem('user')).id,
+        studentId: safeGetJSON('user', {})?.id,
       });
       if (res.status === 200) {
         message.success('提交成功');
@@ -117,23 +117,23 @@ export default function HomeworkDetailPage() {
           <div style={{ marginTop: 24 }}>
             <h4>我的提交</h4>
             <Card size="small">
-              <Tabs defaultActiveKey="content">
-                <TabPane tab="提交内容" key="content">
-                  <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>
-                    {submission.content || '暂无内容'}
-                  </pre>
-                  {submission.codeLanguage && (
-                    <Tag color="blue" style={{ marginTop: 8 }}>语言: {submission.codeLanguage}</Tag>
-                  )}
-                </TabPane>
-                {submission.codeContent && (
-                  <TabPane tab="代码" key="code">
-                    <div style={{ background: '#1e1e1e', color: '#d4d4d4', padding: 12, borderRadius: 4, fontFamily: 'Consolas, Monaco, monospace', fontSize: 12, maxHeight: 300, overflow: 'auto' }}>
-                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{submission.codeContent}</pre>
-                    </div>
-                  </TabPane>
-                )}
-              </Tabs>
+              <Tabs defaultActiveKey="content" items={[
+                { key: 'content', label: '提交内容', children: (
+                  <div>
+                    <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, maxHeight: 300, overflow: 'auto' }}>
+                      {submission.content || '暂无内容'}
+                    </pre>
+                    {submission.codeLanguage && (
+                      <Tag color="blue" style={{ marginTop: 8 }}>语言: {submission.codeLanguage}</Tag>
+                    )}
+                  </div>
+                )},
+                ...(submission.codeContent ? [{ key: 'code', label: '代码', children: (
+                  <div style={{ background: '#1e1e1e', color: '#d4d4d4', padding: 12, borderRadius: 4, fontFamily: 'Consolas, Monaco, monospace', fontSize: 12, maxHeight: 300, overflow: 'auto' }}>
+                    <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{submission.codeContent}</pre>
+                  </div>
+                )}] : []),
+              ]} />
               <Divider style={{ margin: '12px 0' }} />
               <Descriptions column={2} size="small">
                 <Descriptions.Item label="提交时间">

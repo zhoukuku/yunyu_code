@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
 
 @Entity('hierarchy')
@@ -108,6 +109,7 @@ export class Lesson {
 }
 
 @Entity('notices')
+@Index(['popupType', 'popupStartTime', 'popupEndTime', 'isRead'])
 export class Notice {
   @PrimaryGeneratedColumn()
   id: number;

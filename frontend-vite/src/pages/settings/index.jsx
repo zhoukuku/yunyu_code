@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Form, Input, Button, Avatar, Upload, message, Table, Tag, Space, Spin } from 'antd';
 import { UserOutlined, UploadOutlined, TeamOutlined, SaveOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { getMyClasses, getUserDetail, request } from '../../services/api';
+import { safeGetItem, safeGetJSON, safeSetJSON } from '../../utils/storage';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -14,14 +15,7 @@ export default function SettingsPage() {
   const [loadingClasses, setLoadingClasses] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState('');
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) { navigate('/login'); return; }
-    fetchUserProfile();
-    fetchMyClasses();
-  }, []);
-
-  const fetchUserProfile = async () => {
+  const fetchUserProfile = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getUserDetail();
@@ -35,14 +29,11 @@ export default function SettingsPage() {
           phone: u.phone || '',
         });
       } else {
-        const stored = localStorage.getItem('user');
-        if (stored) {
-          try {
-            const u = JSON.parse(stored);
-            setUser(u);
-            setAvatarUrl(u.avatar || '');
-            form.setFieldsValue({ username: u.username || '', nickname: u.nickname || '' });
-          } catch (e) { /* ignore */ }
+        const fallback = safeGetJSON('user');
+        if (fallback) {
+          setUser(fallback);
+          setAvatarUrl(fallback.avatar || '');
+          form.setFieldsValue({ username: fallback.username || '', nickname: fallback.nickname || '' });
         }
       }
     } catch (error) {
@@ -50,9 +41,9 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [form]);
 
-  const fetchMyClasses = async () => {
+  const fetchMyClasses = useCallback(async () => {
     setLoadingClasses(true);
     try {
       const res = await getMyClasses();
@@ -64,7 +55,14 @@ export default function SettingsPage() {
     } finally {
       setLoadingClasses(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const token = safeGetItem('accessToken');
+    if (!token) { navigate('/login'); return; }
+    fetchUserProfile();
+    fetchMyClasses();
+  }, [navigate, fetchUserProfile, fetchMyClasses]);
 
   const handleSaveProfile = async () => {
     setSaving(true);
@@ -72,21 +70,23 @@ export default function SettingsPage() {
       const values = form.getFieldsValue();
       const res = await request.put('/users/profile/me', {
         nickname: values.nickname,
+        avatar: avatarUrl,
       });
       if (res && res.status === 200) {
         message.success('个人资料已更新');
-        // Update localStorage
-        const stored = localStorage.getItem('user');
+        const stored = safeGetJSON('user');
         if (stored) {
-          const u = JSON.parse(stored);
-          u.nickname = values.nickname;
-          localStorage.setItem('user', JSON.stringify(u));
+          stored.nickname = values.nickname;
+          stored.avatar = avatarUrl;
+          safeSetJSON('user', stored);
         }
+        // Refresh user data from server to ensure consistency
+        fetchUserProfile();
       } else {
         message.error('更新失败，请重试');
       }
     } catch (error) {
-      message.error('保存失败：' + (error.message || '未知错误'));
+      message.error(`保存失败：${error.message || '未知错误'}`);
     } finally {
       setSaving(false);
     }

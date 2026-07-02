@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Avatar, Button, Tabs, List, Spin, message, Empty } from 'antd';
 import { UserOutlined, PlusOutlined, CheckOutlined } from '@ant-design/icons';
 import { useParams, Link } from 'react-router-dom';
-import { followUser, unfollowUser, getFollowers, getFollowing, getFollowStats, checkFollow } from '../../services/api';
-
-const { TabPane } = Tabs;
+import { followUser, unfollowUser, getFollowers, getFollowing, getFollowStats, checkFollow, getUserByUsername } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 
 export default function UsersPage() {
   const { username } = useParams();
@@ -17,25 +16,20 @@ export default function UsersPage() {
   const [following, setFollowing] = useState([]);
   const [listLoading, setListLoading] = useState(false);
 
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const currentUser = safeGetJSON('user', {});
   const isOwnProfile = currentUser.username === username;
 
-  useEffect(() => {
-    fetchUserData();
-  }, [username]);
-
-  const fetchUserData = async () => {
+  const fetchUserData = useCallback(async () => {
     setLoading(true);
     try {
       // Fetch user by username from backend
-      const userRes = await fetch(`/api/users/username/${username}`);
-      const userData = await userRes.json();
+      const userRes = await getUserByUsername(username);
 
-      if (userData.status === 200 && userData.result) {
-        setUser(userData.result);
+      if (userRes.status === 200 && userRes.result) {
+        setUser(userRes.result);
 
         // Fetch follow stats
-        const statsRes = await getFollowStats(userData.result.id);
+        const statsRes = await getFollowStats(userRes.result.id);
         if (statsRes.status === 200) {
           setFollowStats(statsRes.result);
         }
@@ -43,7 +37,7 @@ export default function UsersPage() {
         // Check if current user is following this user
         if (!isOwnProfile && currentUser.id) {
           try {
-            const followRes = await checkFollow(userData.result.id);
+            const followRes = await checkFollow(userRes.result.id);
             if (followRes.status === 200) {
               setIsFollowing(followRes.result.isFollowing);
             }
@@ -52,17 +46,21 @@ export default function UsersPage() {
           }
         }
       } else {
-        message.error('User not found');
+        message.error('未找到用户');
         setUser(null);
       }
     } catch (error) {
       console.error('Failed to fetch user:', error);
-      message.error('Failed to load user profile');
+      message.error('加载用户资料失败');
       setUser(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [username, isOwnProfile, currentUser.id]);
+
+  useEffect(() => {
+    fetchUserData();
+  }, [fetchUserData]);
 
   const fetchFollowers = async () => {
     if (!user) return;
@@ -96,7 +94,7 @@ export default function UsersPage() {
 
   const handleFollow = async () => {
     if (!currentUser.id) {
-      message.warning('Please login first');
+      message.warning('请先登录');
       return;
     }
 
@@ -106,16 +104,16 @@ export default function UsersPage() {
         await unfollowUser(user.id);
         setIsFollowing(false);
         setFollowStats(prev => ({ ...prev, followersCount: prev.followersCount - 1 }));
-        message.success('Unfollowed successfully');
+        message.success('已取消关注');
       } else {
         await followUser(user.id);
         setIsFollowing(true);
         setFollowStats(prev => ({ ...prev, followersCount: prev.followersCount + 1 }));
-        message.success('Followed successfully');
+        message.success('已关注');
       }
     } catch (error) {
       console.error('Failed to toggle follow:', error);
-      message.error(error.response?.data?.message || 'Failed to toggle follow');
+      message.error(error.response?.data?.message || '关注操作失败');
     } finally {
       setFollowLoading(false);
     }
@@ -140,7 +138,7 @@ export default function UsersPage() {
   if (!user) {
     return (
       <div style={{ padding: 24 }}>
-        <Empty description="User not found" />
+        <Empty description="未找到用户" />
       </div>
     );
   }
@@ -154,8 +152,8 @@ export default function UsersPage() {
             <h2 style={{ marginBottom: 8 }}>{user.nickname || user.name || user.username}</h2>
             <p style={{ color: '#888', marginBottom: 4 }}>@{user.username}</p>
             <div style={{ display: 'flex', gap: 24, marginTop: 12 }}>
-              <span><strong>{followStats.followersCount}</strong> Followers</span>
-              <span><strong>{followStats.followingCount}</strong> Following</span>
+              <span><strong>{followStats.followersCount}</strong> 粉丝</span>
+              <span><strong>{followStats.followingCount}</strong> 关注</span>
             </div>
           </div>
           {!isOwnProfile && (
@@ -165,20 +163,20 @@ export default function UsersPage() {
               onClick={handleFollow}
               loading={followLoading}
             >
-              {isFollowing ? 'Following' : 'Follow'}
+              {isFollowing ? '已关注' : '关注'}
             </Button>
           )}
           {isOwnProfile && (
             <Link to="/settings">
-              <Button>Edit Profile</Button>
+              <Button>编辑资料</Button>
             </Link>
           )}
         </div>
       </Card>
 
       <Card style={{ marginTop: 16 }}>
-        <Tabs defaultActiveKey="followers" onChange={onTabChange}>
-          <TabPane tab={`Followers (${followStats.followersCount})`} key="followers">
+        <Tabs defaultActiveKey="followers" onChange={onTabChange} items={[
+          { key: 'followers', label: `粉丝 (${followStats.followersCount})`, children: (
             <List
               loading={listLoading}
               dataSource={followers}
@@ -188,7 +186,7 @@ export default function UsersPage() {
                   actions={[
                     !isOwnProfile && item.id !== currentUser.id && (
                       <Button size="small" key="follow">
-                        {item.isFollowing ? 'Following' : 'Follow'}
+                        {item.isFollowing ? '已关注' : '关注'}
                       </Button>
                     )
                   ].filter(Boolean)}
@@ -200,10 +198,10 @@ export default function UsersPage() {
                   />
                 </List.Item>
               )}
-              locale={{ emptyText: 'No followers yet' }}
+              locale={{ emptyText: '暂无粉丝' }}
             />
-          </TabPane>
-          <TabPane tab={`Following (${followStats.followingCount})`} key="following">
+          )},
+          { key: 'following', label: `关注 (${followStats.followingCount})`, children: (
             <List
               loading={listLoading}
               dataSource={following}
@@ -218,10 +216,10 @@ export default function UsersPage() {
                   />
                 </List.Item>
               )}
-              locale={{ emptyText: 'Not following anyone yet' }}
+              locale={{ emptyText: '暂未关注任何人' }}
             />
-          </TabPane>
-        </Tabs>
+          )},
+        ]} />
       </Card>
     </div>
   );

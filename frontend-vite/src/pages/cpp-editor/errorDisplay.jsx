@@ -494,11 +494,11 @@ export const parseMultipleErrors = (output) => {
       inErrorBlock = true;
     } else if (inErrorBlock && (line.startsWith(' ') || line.startsWith('\t'))) {
       // Continuation of previous error
-      currentError += '\n' + line;
+      currentError += `\n${line}`;
     } else if (inErrorBlock && line.trim()) {
       // New non-error line, check if it's a related note
       if (line.match(/^\s*note:/i)) {
-        currentError += '\n' + line;
+        currentError += `\n${line}`;
       } else {
         // Save and start fresh
         errors.push(parseCppError(currentError.trim()));

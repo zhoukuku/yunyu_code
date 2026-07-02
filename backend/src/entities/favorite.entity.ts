@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   ManyToOne,
+  JoinColumn,
   Unique,
   Index,
 } from 'typeorm';
@@ -13,6 +14,7 @@ import { Project } from './project.entity';
 @Entity('favorites')
 @Unique(['userId', 'projectId'])
 @Index(['userId'])
+@Index(['projectId'])
 export class Favorite {
   @PrimaryGeneratedColumn()
   id: number;
@@ -26,9 +28,11 @@ export class Favorite {
   @CreateDateColumn()
   createdAt: Date;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  user: User;
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'userId' })
+  user: User | null;
 
-  @ManyToOne(() => Project, { onDelete: 'CASCADE' })
-  project: Project;
+  @ManyToOne(() => Project, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'projectId' })
+  project: Project | null;
 }

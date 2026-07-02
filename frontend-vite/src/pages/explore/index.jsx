@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Row, Col, Card, Tag, Tabs, Button, message, Carousel, Spin, Empty, Space, Badge } from 'antd';
 import {
   StarOutlined,
@@ -15,9 +15,11 @@ import { useNavigate } from 'react-router-dom';
 import {
   getFeaturedContents,
   getFeaturedCategories,
-  getFeaturedCourses,
+  getAllExploreCourses,
   getHierarchy,
+  getCoursesByCategory,
 } from '../../services/api';
+import { safeGetItem } from '../../utils/storage';
 
 const { Meta } = Card;
 
@@ -48,20 +50,61 @@ const categoryNames = {
 export default function ExplorePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [categoryLoading, setCategoryLoading] = useState(false);
   const [featuredList, setFeaturedList] = useState([]);
   const [categories, setCategories] = useState([]);
   const [activeCategory, setActiveCategory] = useState('all');
   const [courses, setCourses] = useState([]);
   const [hierarchies, setHierarchies] = useState([]);
 
-  useEffect(() => {
-    loadData();
+  const loadFeatured = useCallback(async () => {
+    try {
+      const res = await getFeaturedContents();
+      if (res && res.status === 200 && res.result) {
+        setFeaturedList(res.result?.records || []);
+      }
+    } catch (e) {
+      console.error('Failed to load featured', e);
+    }
   }, []);
 
-  const loadData = async () => {
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await getFeaturedCategories();
+      if (res && res.status === 200 && res.result) {
+        setCategories(res.result || []);
+      }
+    } catch (e) {
+      console.error('Failed to load categories', e);
+    }
+  }, []);
+
+  const loadCourses = useCallback(async () => {
+    try {
+      const res = await getAllExploreCourses();
+      if (res && res.status === 200 && res.result) {
+        setCourses(res.result?.records || []);
+      }
+    } catch (e) {
+      console.error('Failed to load courses', e);
+    }
+  }, []);
+
+  const loadHierarchy = useCallback(async () => {
+    try {
+      const res = await getHierarchy();
+      if (res && res.status === 200 && res.result) {
+        setHierarchies(res.result);
+      }
+    } catch (e) {
+      console.error('Failed to load hierarchy', e);
+    }
+  }, []);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = safeGetItem('accessToken');
       if (!token) {
         window.location.href = '/login';
         return;
@@ -78,51 +121,11 @@ export default function ExplorePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadFeatured, loadCategories, loadCourses, loadHierarchy]);
 
-  const loadFeatured = async () => {
-    try {
-      const res = await getFeaturedContents();
-      if (res.status === 200 && res.result) {
-        setFeaturedList(res.result?.records || []);
-      }
-    } catch (e) {
-      console.error('Failed to load featured', e);
-    }
-  };
-
-  const loadCategories = async () => {
-    try {
-      const res = await getFeaturedCategories();
-      if (res.status === 200 && res.result) {
-        setCategories(res.result || []);
-      }
-    } catch (e) {
-      console.error('Failed to load categories', e);
-    }
-  };
-
-  const loadCourses = async () => {
-    try {
-      const res = await getFeaturedCourses();
-      if (res.status === 200 && res.result) {
-        setCourses(res.result?.records || []);
-      }
-    } catch (e) {
-      console.error('Failed to load courses', e);
-    }
-  };
-
-  const loadHierarchy = async () => {
-    try {
-      const res = await getHierarchy();
-      if (res.status === 200 && res.result) {
-        setHierarchies(res.result);
-      }
-    } catch (e) {
-      console.error('Failed to load hierarchy', e);
-    }
-  };
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleCategoryChange = (key) => {
     setActiveCategory(key);
@@ -134,16 +137,16 @@ export default function ExplorePage() {
   };
 
   const loadCoursesByCategory = async (category) => {
-    setLoading(true);
+    setCategoryLoading(true);
     try {
       const res = await getCoursesByCategory(category);
-      if (res.status === 200 && res.result) {
+      if (res && res.status === 200 && res.result) {
         setCourses(res.result?.records || []);
       }
     } catch (e) {
       message.error('加载分类课程失败');
     } finally {
-      setLoading(false);
+      setCategoryLoading(false);
     }
   };
 
@@ -195,7 +198,7 @@ export default function ExplorePage() {
               <span>精选推荐</span>
             </Space>
           }
-          extra={<Tag color="gold">Featured</Tag>}
+          extra={<Tag color="gold">精选</Tag>}
           style={{ marginBottom: 24 }}
         >
           <Carousel autoplay dotPosition="bottom">
@@ -271,43 +274,26 @@ export default function ExplorePage() {
           onChange={handleCategoryChange}
           type="card"
           tabBarStyle={{ marginBottom: 0 }}
-        >
-          <Tabs.TabPane
-            key="all"
-            tab={
-              <span>
-                <StarOutlined />
-                全部
-              </span>
-            }
-          />
-          {categories.map((cat) => (
-            <Tabs.TabPane
-              key={cat}
-              tab={
-                <span>
-                  {getCategoryIcon(cat)}
-                  {getCategoryName(cat)}
-                </span>
-              }
-            />
-          ))}
-          {hierarchies.map((h) => (
-            <Tabs.TabPane
-              key={`hierarchy_${h.hierarchyId}`}
-              tab={
-                <span>
-                  <BookOutlined />
-                  {h.hierarchyName}
-                </span>
-              }
-            />
-          ))}
-        </Tabs>
+          items={[
+            { key: 'all', label: <span><StarOutlined />全部</span> },
+            ...categories.map((cat) => ({
+              key: cat,
+              label: <span>{getCategoryIcon(cat)}{getCategoryName(cat)}</span>,
+            })),
+            ...hierarchies.map((h) => ({
+              key: `hierarchy_${h.hierarchyId}`,
+              label: <span><BookOutlined />{h.hierarchyName}</span>,
+            })),
+          ]}
+        />
 
         {/* Course Grid */}
         <div style={{ marginTop: 24 }}>
-          {courses.length === 0 ? (
+          {categoryLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+              <Spin size="large" />
+            </div>
+          ) : courses.length === 0 ? (
             <Empty description="暂无课程" style={{ padding: 40 }} />
           ) : (
             <Row gutter={[16, 16]}>

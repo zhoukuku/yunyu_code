@@ -11,7 +11,7 @@ export default function ClassJoinPage() {
 
   const handleSearch = async () => {
     if (!code.trim()) {
-      message.warning('Please enter a class code');
+      message.warning('请输入班级代码');
       return;
     }
     setLoading(true);
@@ -21,10 +21,12 @@ export default function ClassJoinPage() {
       if (res.status === 200 && res.result) {
         setSearchResult(res.result);
       } else {
-        message.error(res.message || 'Class not found');
+        message.error(res.msg || '未找到班级');
       }
     } catch (error) {
-      message.error('Failed to search class');
+      console.error('Failed to search class:', error);
+      const detail = error.response?.data?.msg;
+      message.error(detail || '搜索班级失败');
     } finally {
       setLoading(false);
     }
@@ -35,34 +37,36 @@ export default function ClassJoinPage() {
     try {
       const res = await applyToJoinClass(classId);
       if (res.status === 200) {
-        message.success('Successfully joined the class!');
+        message.success('成功加入班级！');
         setSearchResult(null);
         setCode('');
       } else {
-        message.error(res.message || 'Failed to join class');
+        message.error(res.msg || '加入班级失败');
       }
     } catch (error) {
-      message.error('Failed to join class');
+      console.error('Failed to join class:', error);
+      const detail = error.response?.data?.msg;
+      message.error(detail || '加入班级失败');
     } finally {
       setJoining(false);
     }
   };
 
   const columns = [
-    { title: 'Class Name', dataIndex: 'className' },
+    { title: '班级名称', dataIndex: 'className' },
     {
-      title: 'Teacher ID',
+      title: '教师ID',
       dataIndex: 'teacherId',
       render: (id) => id || '-',
     },
-    { title: 'Students', dataIndex: 'studentNum', render: (n) => `${n} students` },
+    { title: '学生', dataIndex: 'studentNum', render: (n) => `${n} 名学生` },
     {
-      title: 'Status',
+      title: '状态',
       dataIndex: 'isEnd',
-      render: (v) => <Tag color={v ? 'red' : 'green'}>{v ? 'Ended' : 'Active'}</Tag>,
+      render: (v) => <Tag color={v ? 'red' : 'green'}>{v ? '已结束' : '进行中'}</Tag>,
     },
     {
-      title: 'Action',
+      title: '操作',
       render: (_, record) => (
         <Button
           type="primary"
@@ -70,7 +74,7 @@ export default function ClassJoinPage() {
           loading={joining}
           onClick={() => handleJoin(record.id)}
         >
-          Join Class
+          加入班级
         </Button>
       ),
     },
@@ -78,25 +82,25 @@ export default function ClassJoinPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Card title="Join Class">
+      <Card title="加入班级">
         <Space direction="vertical" style={{ width: '100%' }} size="large">
-          <Card size="small" title="Search by Class Code">
+          <Card size="small" title="按班级代码搜索">
             <Space>
               <Input
-                placeholder="Enter class code"
+                placeholder="输入班级代码"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 onPressEnter={handleSearch}
                 style={{ width: 300 }}
               />
               <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>
-                Search
+                搜索
               </Button>
             </Space>
           </Card>
 
           {searchResult && (
-            <Card size="small" title="Search Result">
+            <Card size="small" title="搜索结果">
               <Table
                 columns={columns}
                 dataSource={[searchResult]}

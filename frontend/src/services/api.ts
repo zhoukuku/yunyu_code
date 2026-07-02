@@ -2,25 +2,56 @@ import axios from 'axios';
 import { history } from '@umijs/max';
 import type { ResponseStruct } from './types';
 
+// --- Safe localStorage helpers (inline to avoid cross-project dependency) ---
+const memStore: Record<string, string> = {};
+
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    return memStore[key] ?? null;
+  }
+}
+
+function safeRemoveItem(key: string): void {
+  delete memStore[key];
+  try {
+    localStorage.removeItem(key);
+  } catch (e) {
+    // Swallow
+  }
+}
+
 const request = axios.create({
   baseURL: '/api',
   timeout: 30000,
 });
 
 request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
-  if (token) {
-    config.headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+  try {
+    const token = safeGetItem('accessToken');
+    if (token) {
+      config.headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    }
+  } catch (e) {
+    // Proceed without auth header
   }
   return config;
 });
 
 request.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    // Normalize response shape
+    const data = response.data;
+    if (data && typeof data === 'object' && 'status' in data) {
+      return data;
+    }
+    return { status: response.status, result: data };
+  },
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('user');
+      safeRemoveItem('accessToken');
+      safeRemoveItem('user');
       history.push('/login');
     }
     return Promise.reject(error);

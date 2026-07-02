@@ -29,13 +29,13 @@ class MockInterpreter {
   // Motion blocks (copied from ide/index.jsx for testing)
   motion_movesteps(spriteId, steps) {
     const state = this.state.sprites[spriteId] || {};
-    const rad = ((state.direction || 90) - 90) * Math.PI / 180;
-    const oldX = state.x || 0;
-    const oldY = state.y || 0;
+    const rad = ((state.direction ?? 90) - 90) * Math.PI / 180;
+    const oldX = state.x ?? 0;
+    const oldY = state.y ?? 0;
     const newX = oldX + Math.cos(rad) * steps;
     const newY = oldY - Math.sin(rad) * steps;
     this._updateState(spriteId, { x: newX, y: newY });
-    return { oldX, oldY, newX, newY, direction: state.direction || 90 };
+    return { oldX, oldY, newX, newY, direction: state.direction ?? 90 };
   }
 
   motion_gotoxy(spriteId, x, y) {
@@ -55,21 +55,21 @@ class MockInterpreter {
 
   motion_changexby(spriteId, dx) {
     const state = this.state.sprites[spriteId] || {};
-    const newX = (state.x || 0) + dx;
+    const newX = (state.x ?? 0) + dx;
     this._updateState(spriteId, { x: newX });
     return { x: newX };
   }
 
   motion_changeyby(spriteId, dy) {
     const state = this.state.sprites[spriteId] || {};
-    const newY = (state.y || 0) + dy;
+    const newY = (state.y ?? 0) + dy;
     this._updateState(spriteId, { y: newY });
     return { y: newY };
   }
 
   motion_turn_right(spriteId, deg) {
     const state = this.state.sprites[spriteId] || {};
-    const newDir = ((state.direction || 90) + deg) % 360;
+    const newDir = ((state.direction ?? 90) + deg) % 360;
     const finalDir = newDir < 0 ? newDir + 360 : newDir;
     this._updateState(spriteId, { direction: finalDir });
     return { direction: finalDir };
@@ -77,7 +77,7 @@ class MockInterpreter {
 
   motion_turn_left(spriteId, deg) {
     const state = this.state.sprites[spriteId] || {};
-    const newDir = ((state.direction || 90) - deg + 360) % 360;
+    const newDir = ((state.direction ?? 90) - deg + 360) % 360;
     this._updateState(spriteId, { direction: newDir });
     return { direction: newDir };
   }
@@ -90,17 +90,17 @@ class MockInterpreter {
 
   motion_xposition(spriteId) {
     const state = this.state.sprites[spriteId] || {};
-    return state.x || 0;
+    return state.x ?? 0;
   }
 
   motion_yposition(spriteId) {
     const state = this.state.sprites[spriteId] || {};
-    return state.y || 0;
+    return state.y ?? 0;
   }
 
   motion_direction(spriteId) {
     const state = this.state.sprites[spriteId] || {};
-    return state.direction || 90;
+    return state.direction ?? 90;
   }
 
   motion_ifonedgebounce(spriteId) {

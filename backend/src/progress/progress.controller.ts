@@ -30,7 +30,7 @@ export class ProgressController {
   async getLearningHistory(@Request() req: any, @Query('limit') limit?: string) {
     const userId = req.user?.sub;
     if (!userId) return { status: 401, result: null };
-    const history = await this.progressService.getLearningHistory(userId, limit ? parseInt(limit) : 20);
+    const history = await this.progressService.getLearningHistory(userId, limit ? parseInt(limit, 10) : 20);
     return { status: 200, result: history };
   }
 

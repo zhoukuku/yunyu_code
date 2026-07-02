@@ -93,7 +93,7 @@ const { chromium } = require('playwright');
       await page.goto('https://scratch.5aqima.com' + route, { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.waitForTimeout(5000);
 
-      await page.waitForSelector('[class*="container"], [class*="content"], main', { timeout: 10000 }).catch(() => {});
+      await page.waitForSelector('[class*="container"], [class*="content"], main', { timeout: 10000 }).catch(e => console.warn('Selector not found (may be fine):', e.message));
 
       const content = await page.evaluate(() => {
         const root = document.getElementById('root');

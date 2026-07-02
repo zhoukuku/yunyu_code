@@ -1,5 +1,4 @@
 const { DataSource } = require('typeorm');
-const bcrypt = require('bcrypt');
 
 const AppDataSource = new DataSource({
   type: 'sqlite',
@@ -8,10 +7,6 @@ const AppDataSource = new DataSource({
   synchronize: false,
   logging: false,
 });
-
-async function hashPassword(password) {
-  return bcrypt.hash(password, 10);
-}
 
 async function seed() {
   await AppDataSource.initialize();
@@ -47,8 +42,7 @@ async function seed() {
   // Create 10 teacher accounts
   const teacherValues = [];
   for (let i = 1; i <= 10; i++) {
-    const hash = await hashPassword('123456');
-    teacherValues.push("('teacher" + i + "', 'teacher" + i + "', '" + hash + "', '教师" + i + "', NULL, 2, 1, '教师" + i + "', 0, datetime('now'), datetime('now'), 1, 2)");
+    teacherValues.push("('teacher" + i + "', 'teacher" + i + "', '123456', '教师" + i + "', NULL, 2, 1, '教师" + i + "', 0, datetime('now'), datetime('now'), 1, 2)");
   }
   await AppDataSource.query(`
     INSERT INTO users (username, account, password, name, avatar, userType, sex, nickname, wechatStatus, createdAt, updatedAt, status, role)

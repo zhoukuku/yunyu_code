@@ -5,10 +5,10 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { createProject, getProjects, getProject, updateProject, deleteProject, updateProjectData, remixProject, getCloudVariables, updateCloudVariables } from '../../services/api';
 import { defineBlocks } from '../../components/blockly/blocks';
 import { registerGenerators, registerPythonGenerators } from '../../components/blockly/generators';
+import { safeGetJSON, safeSetItem } from '../../utils/storage';
 
 import './style.css';
 
-const { TabPane } = Tabs;
 const { TextArea } = Input;
 const { Dragger } = Upload;
 const { Option } = Select;
@@ -95,7 +95,7 @@ class CodeExecutor {
       'input': async (prompt) => { return new Promise(resolve => { this.onInput?.(prompt || '', resolve); }); },
       'open': (filename, mode = 'r') => { this.warn(`open() not fully supported - simulated for: ${filename}`); return { read: () => '', write: (s) => this.log(s), close: () => {} }; },
       'chr': (n) => String.fromCharCode(n), 'ord': (c) => c.charCodeAt(0),
-      'hex': (n) => '0x' + n.toString(16), 'oct': (n) => '0o' + n.toString(8), 'bin': (n) => '0b' + n.toString(2),
+      'hex': (n) => `0x${n.toString(16)}`, 'oct': (n) => `0o${n.toString(8)}`, 'bin': (n) => `0b${n.toString(2)}`,
       'pow': Math.pow, 'divmod': (a, b) => [Math.floor(a / b), a % b],
       'all': (arr) => arr && arr.every(x => Boolean(x)), 'any': (arr) => arr && arr.some(x => Boolean(x)),
       'repr': (x) => JSON.stringify(x), 'format': (x, fmt) => { try { if (typeof x === 'number' && fmt) { return x.toFixed(fmt.includes('.') ? fmt.split('.')[1].length : 0); } return String(x); } catch { return String(x); } },
@@ -131,8 +131,8 @@ class CodeExecutor {
     this._formatValue = (v) => {
       if (v === null) return 'None'; if (v === undefined) return 'None';
       if (typeof v === 'boolean') return v ? 'True' : 'False';
-      if (Array.isArray(v)) return '[' + v.map(x => this._formatValue(x)).join(', ') + ']';
-      if (typeof v === 'object') return '{' + Object.entries(v).map(([k, val]) => `${this._formatValue(k)}: ${this._formatValue(val)}`).join(', ') + '}';
+      if (Array.isArray(v)) return `[${v.map(x => this._formatValue(x)).join(', ')}]`;
+      if (typeof v === 'object') return `{${Object.entries(v).map(([k, val]) => `${this._formatValue(k)}: ${this._formatValue(val)}`).join(', ')}}`;
       return String(v);
     };
 
@@ -165,7 +165,7 @@ class CodeExecutor {
       }
       const mathObj = mathSurvived.length ? `const __math = {${mathSurvived.map(i => mathKeys[i]).join(',')}};` : 'const __math = {};';
 
-      const fn = new Function(...allParamNames, '__print', '__input', '__this', `"use strict";${mathObj}return (async () => {try {${jsCode}} catch (__py_error) {const errorMsg = __py_error.message || String(__py_error);const stack = __py_error.stack || '';const lineMatch = stack.match(/<anonymous>:(\d+):(\d+)/);let lineInfo = '';if (lineMatch) {const jsLine = parseInt(lineMatch[1]) - 12;lineInfo = \` (行号 ~\${jsLine})\`;}throw new Error(\`Python执行错误: \${errorMsg}\${lineInfo}\`);}})()`);
+      const fn = new Function(...allParamNames, '__print', '__input', '__this', `${mathObj}return (async () => {try {${jsCode}} catch (__py_error) {const errorMsg = __py_error.message || String(__py_error);const stack = __py_error.stack || '';const lineMatch = stack.match(/<anonymous>:(\d+):(\d+)/);let lineInfo = '';if (lineMatch) {const jsLine = parseInt(lineMatch[1]) - 12;lineInfo = \` (行号 ~\${jsLine})\`;}throw new Error(\`Python执行错误: \${errorMsg}\${lineInfo}\`);}})()`);
 
       const thisProxy = new Proxy({}, { get: (_, prop) => { if (prop === '_output') return this.output; return (...args) => this.log(`${prop}(${args.map(a => JSON.stringify(a)).join(', ')})`, 'function'); } });
 
@@ -212,13 +212,13 @@ class CodeExecutor {
       if (!line || line === '{' || line === '}') continue;
       line = line.replace(/async\s+/g, '').replace(/await\s+/g, '');
       line = line.replace(/const\s+(\w+)\s*=\s*(.+?);/g, 'auto $1 = $2;').replace(/let\s+(\w+)\s*=\s*(.+?);/g, 'auto $1 = $2;').replace(/var\s+(\w+)\s*=\s*(.+?);/g, 'auto $1 = $2;');
-      if (/^\w+\s*=\s*.+;$/.test(line) && !line.includes('auto ')) { line = 'auto ' + line; }
+      if (/^\w+\s*=\s*.+;$/.test(line) && !line.includes('auto ')) { line = `auto ${line}`; }
       line = line.replace(/console\.log\(/g, 'cout << ').replace(/JSON\.stringify\(([^)]+)\)/g, '$1');
       line = line.replace(/Math\.abs\(/g, 'abs(').replace(/Math\.floor\(/g, 'floor(').replace(/Math\.ceil\(/g, 'ceil(').replace(/Math\.sqrt\(/g, 'sqrt(').replace(/Math\.pow\(/g, 'pow(').replace(/Math\.PI/g, 'M_PI');
       line = line.replace(/parseInt\(([^)]+)\)/g, 'stoi($1)').replace(/parseFloat\(([^)]+)\)/g, 'stod($1)');
       line = line.replace(/===/g, '==').replace(/!==/g, '!=');
       line = line.replace(/for\s*\(\s*const\s+(\w+)\s+of\s+(.+?)\)/g, 'for (const auto&$1 : $2)').replace(/for\s*\(\s*let\s+(\w+)\s+of\s+(.+?)\)/g, 'for (auto&$1 : $2)');
-      if (line) { cpp += '    ' + line + '\n'; }
+      if (line) { cpp += `    ${line}\n`; }
     }
     cpp += `\n    return 0;\n}\n`;
     return cpp;
@@ -246,11 +246,30 @@ class ScratchInterpreter {
     this._bindEvents();
   }
   _bindEvents() {
-    document.addEventListener('keydown', (e) => { this.keyboardState[e.key.toLowerCase()] = true; });
-    document.addEventListener('keyup', (e) => { this.keyboardState[e.key.toLowerCase()] = false; });
-    document.addEventListener('mousemove', (e) => { this.mouseState.x = e.clientX; this.mouseState.y = e.clientY; });
-    document.addEventListener('mousedown', () => { this.mouseState.down = true; });
-    document.addEventListener('mouseup', () => { this.mouseState.down = false; });
+    this._onKeydown = (e) => { this.keyboardState[e.key.toLowerCase()] = true; };
+    this._onKeyup = (e) => { this.keyboardState[e.key.toLowerCase()] = false; };
+    this._onMousemove = (e) => { this.mouseState.x = e.clientX; this.mouseState.y = e.clientY; };
+    this._onMousedown = () => { this.mouseState.down = true; };
+    this._onMouseup = () => { this.mouseState.down = false; };
+    document.addEventListener('keydown', this._onKeydown);
+    document.addEventListener('keyup', this._onKeyup);
+    document.addEventListener('mousemove', this._onMousemove);
+    document.addEventListener('mousedown', this._onMousedown);
+    document.addEventListener('mouseup', this._onMouseup);
+  }
+  _unbindEvents() {
+    if (this._onKeydown) {
+      document.removeEventListener('keydown', this._onKeydown);
+      document.removeEventListener('keyup', this._onKeyup);
+      document.removeEventListener('mousemove', this._onMousemove);
+      document.removeEventListener('mousedown', this._onMousedown);
+      document.removeEventListener('mouseup', this._onMouseup);
+      this._onKeydown = null;
+      this._onKeyup = null;
+      this._onMousemove = null;
+      this._onMousedown = null;
+      this._onMouseup = null;
+    }
   }
   _delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
   _random(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -260,20 +279,25 @@ class ScratchInterpreter {
   motion_movesteps(spriteId, steps) {
     const sprite = this._getSprite(spriteId);
     const state = this.state.sprites[spriteId] || {};
-    const rad = ((state.direction || 90) - 90) * Math.PI / 180;
-    const newX = (state.x || 0) + Math.cos(rad) * steps;
-    const newY = (state.y || 0) - Math.sin(rad) * steps;
+    const rad = ((state.direction ?? 90) - 90) * Math.PI / 180;
+    const oldX = state.x ?? 0;
+    const oldY = state.y ?? 0;
+    const newX = oldX + Math.cos(rad) * steps;
+    const newY = oldY - Math.sin(rad) * steps;
+    if (state.penDown) {
+      this.callbacks.onPenDraw?.(spriteId, oldX, oldY, newX, newY, state.penColor ?? '#000000', state.penSize ?? 1);
+    }
     this._updateState(spriteId, { x: newX, y: newY });
   }
   motion_gotoxy(spriteId, x, y) { this._updateState(spriteId, { x, y }); }
   motion_setx(spriteId, x) { this._updateState(spriteId, { x }); }
   motion_sety(spriteId, y) { this._updateState(spriteId, { y }); }
-  motion_turn_right(spriteId, deg) { const state = this.state.sprites[spriteId] || {}; const newDir = ((state.direction || 90) + deg) % 360; this._updateState(spriteId, { direction: newDir < 0 ? newDir + 360 : newDir }); }
-  motion_turn_left(spriteId, deg) { const state = this.state.sprites[spriteId] || {}; const newDir = ((state.direction || 90) - deg + 360) % 360; this._updateState(spriteId, { direction: newDir }); }
+  motion_turn_right(spriteId, deg) { const state = this.state.sprites[spriteId] || {}; const newDir = ((state.direction ?? 90) + deg) % 360; this._updateState(spriteId, { direction: newDir < 0 ? newDir + 360 : newDir }); }
+  motion_turn_left(spriteId, deg) { const state = this.state.sprites[spriteId] || {}; const newDir = ((state.direction ?? 90) - deg + 360) % 360; this._updateState(spriteId, { direction: newDir }); }
   motion_pointindirection(spriteId, direction) { this._updateState(spriteId, { direction }); }
-  motion_xposition(spriteId) { return this.state.sprites[spriteId]?.x || 0; }
-  motion_yposition(spriteId) { return this.state.sprites[spriteId]?.y || 0; }
-  motion_direction(spriteId) { return this.state.sprites[spriteId]?.direction || 90; }
+  motion_xposition(spriteId) { return this.state.sprites[spriteId]?.x ?? 0; }
+  motion_yposition(spriteId) { return this.state.sprites[spriteId]?.y ?? 0; }
+  motion_direction(spriteId) { return this.state.sprites[spriteId]?.direction ?? 90; }
 
   looks_say(spriteId, text) { this._updateState(spriteId, { saying: String(text) }); }
   looks_sayforsecs(spriteId, text, secs) { this._updateState(spriteId, { saying: String(text) }); return this._delay(secs * 1000).then(() => { this._updateState(spriteId, { saying: null }); }); }
@@ -281,36 +305,36 @@ class ScratchInterpreter {
   looks_show(spriteId) { this._updateState(spriteId, { visible: true }); }
   looks_hide(spriteId) { this._updateState(spriteId, { visible: false }); }
   looks_switchcostumeto(spriteId, costumeName) { const sprite = this._getSprite(spriteId); if (!sprite) return; const idx = sprite.costumes.findIndex(c => c.name === costumeName); if (idx >= 0) { this._updateState(spriteId, { currentCostume: idx }); } }
-  looks_nextcostume(spriteId) { const sprite = this._getSprite(spriteId); if (!sprite) return; const state = this.state.sprites[spriteId] || {}; const next = ((state.currentCostume || 0) + 1) % sprite.costumes.length; this._updateState(spriteId, { currentCostume: next }); }
-  looks_changesizeby(spriteId, delta) { const state = this.state.sprites[spriteId] || {}; const newSize = Math.max(1, (state.size || 100) + delta); this._updateState(spriteId, { size: newSize }); }
+  looks_nextcostume(spriteId) { const sprite = this._getSprite(spriteId); if (!sprite) return; const state = this.state.sprites[spriteId] || {}; const next = ((state.currentCostume ?? 0) + 1) % sprite.costumes.length; this._updateState(spriteId, { currentCostume: next }); }
+  looks_changesizeby(spriteId, delta) { const state = this.state.sprites[spriteId] || {}; const newSize = Math.max(1, (state.size ?? 100) + delta); this._updateState(spriteId, { size: newSize }); }
   looks_setsizeto(spriteId, size) { this._updateState(spriteId, { size: Math.max(1, size) }); }
-  looks_size(spriteId) { return this.state.sprites[spriteId]?.size || 100; }
+  looks_size(spriteId) { return this.state.sprites[spriteId]?.size ?? 100; }
 
-  sensing_touching(spriteId, targetId) { const state = this.state.sprites[spriteId] || {}; const dx = (state.x || 0); const dy = (state.y || 0); return Math.sqrt(dx * dx + dy * dy) < 50; }
-  sensing_distanceto(spriteId, targetId) { const state = this.state.sprites[spriteId] || {}; return Math.sqrt((state.x || 0) ** 2 + (state.y || 0) ** 2); }
+  sensing_touching(spriteId, targetId) { const state = this.state.sprites[spriteId] || {}; const dx = (state.x ?? 0); const dy = (state.y ?? 0); return Math.sqrt(dx * dx + dy * dy) < 50; }
+  sensing_distanceto(spriteId, targetId) { const state = this.state.sprites[spriteId] || {}; return Math.sqrt((state.x ?? 0) ** 2 + (state.y ?? 0) ** 2); }
   sensing_keypressed(spriteId, key) { return this.keyboardState[key.toLowerCase()] || false; }
   sensing_mousedown() { return this.mouseState.down; }
   sensing_mousex() { return this.mouseState.x - 100; }
   sensing_mousey() { return -(this.mouseState.y - 100); }
 
-  operator_add(a, b) { return (a || 0) + (b || 0); }
-  operator_subtract(a, b) { return (a || 0) - (b || 0); }
-  operator_multiply(a, b) { return (a || 0) * (b || 0); }
-  operator_divide(a, b) { return b !== 0 ? (a || 0) / b : 0; }
+  operator_add(a, b) { return (a ?? 0) + (b ?? 0); }
+  operator_subtract(a, b) { return (a ?? 0) - (b ?? 0); }
+  operator_multiply(a, b) { return (a ?? 0) * (b ?? 0); }
+  operator_divide(a, b) { return b !== 0 ? (a ?? 0) / b : 0; }
   operator_random(spriteId, from, to) { return this._random(from, to); }
-  operator_gt(a, b) { return (a || 0) > (b || 0); }
-  operator_lt(a, b) { return (a || 0) < (b || 0); }
+  operator_gt(a, b) { return (a ?? 0) > (b ?? 0); }
+  operator_lt(a, b) { return (a ?? 0) < (b ?? 0); }
   operator_equals(a, b) { return a === b; }
   operator_and(a, b) { return !!(a && b); }
   operator_or(a, b) { return !!(a || b); }
   operator_not(a) { return !a; }
-  operator_mod(a, b) { return b !== 0 ? (a || 0) % b : 0; }
-  operator_round(a) { return Math.round(a || 0); }
-  operator_mathop(spriteId, op, num) { const n = num || 0; const ops = { 'abs': Math.abs, 'floor': Math.floor, 'ceiling': Math.ceil, 'sqrt': Math.sqrt, 'sin': (x) => Math.sin(x * Math.PI / 180), 'cos': (x) => Math.cos(x * Math.PI / 180), 'tan': (x) => Math.tan(x * Math.PI / 180), 'ln': Math.log, 'log': (x) => Math.log(x) / Math.LN10, 'e^': Math.exp, '10^': (x) => Math.pow(10, x) }; return ops[op] ? ops[op](n) : n; }
-  operator_join(a, b) { return String(a || '') + String(b || ''); }
-  operator_letter_of(spriteId, letter, string) { const s = String(string || ''); const idx = Math.floor(letter || 1) - 1; return idx >= 0 && idx < s.length ? s[idx] : ''; }
-  operator_length(spriteId, string) { return String(string || '').length; }
-  operator_contains(spriteId, string1, string2) { return String(string1 || '').toLowerCase().includes(String(string2 || '').toLowerCase()); }
+  operator_mod(a, b) { return b !== 0 ? (a ?? 0) % b : 0; }
+  operator_round(a) { return Math.round(a ?? 0); }
+  operator_mathop(spriteId, op, num) { const n = num ?? 0; const ops = { 'abs': Math.abs, 'floor': Math.floor, 'ceiling': Math.ceil, 'sqrt': Math.sqrt, 'sin': (x) => Math.sin(x * Math.PI / 180), 'cos': (x) => Math.cos(x * Math.PI / 180), 'tan': (x) => Math.tan(x * Math.PI / 180), 'ln': Math.log, 'log': (x) => Math.log(x) / Math.LN10, 'e^': Math.exp, '10^': (x) => Math.pow(10, x) }; return ops[op] ? ops[op](n) : n; }
+  operator_join(a, b) { return String(a ?? '') + String(b ?? ''); }
+  operator_letter_of(spriteId, letter, string) { const s = String(string ?? ''); const idx = Math.floor(letter ?? 1) - 1; return idx >= 0 && idx < s.length ? s[idx] : ''; }
+  operator_length(spriteId, string) { return String(string ?? '').length; }
+  operator_contains(spriteId, string1, string2) { return String(string1 ?? '').toLowerCase().includes(String(string2 ?? '').toLowerCase()); }
 
   async control_wait(spriteId, seconds) { await this._delay(seconds * 1000); }
   async control_repeat(spriteId, times, fn) { for (let i = 0; i < times && this.running; i++) { await fn(); } }
@@ -321,18 +345,19 @@ class ScratchInterpreter {
   control_stop(spriteId, option) { if (option === 'all') { this.running = false; } }
 
   data_setvariableto(spriteId, name, value) { this.variables = this.variables || {}; this.variables[name] = value; }
-  data_changevariableby(spriteId, name, delta) { this.variables = this.variables || {}; this.variables[name] = (this.variables[name] || 0) + delta; }
+  data_changevariableby(spriteId, name, delta) { this.variables = this.variables || {}; this.variables[name] = (this.variables[name] ?? 0) + delta; }
 
   pen_up(spriteId) { this._updateState(spriteId, { penDown: false }); }
   pen_down(spriteId) { this._updateState(spriteId, { penDown: true }); }
   pen_color(spriteId, color) { this._updateState(spriteId, { penColor: color }); }
-  pen_size(spriteId, size) { this._updateState(spriteId, { penSize: Math.max(1, Math.min(100, size || 1)) }); }
+  pen_size(spriteId, size) { this._updateState(spriteId, { penSize: Math.max(1, Math.min(100, size ?? 1)) }); }
   pen_clear(spriteId) { this.callbacks.onPenClear?.(); }
 
   event_broadcast(spriteId, message) { this.callbacks.onBroadcast?.(message); }
 
   start() { this.running = true; }
   stop() { this.running = false; }
+  destroy() { this.stop(); this._unbindEvents(); }
   setCurrentSprite(spriteId) { this.currentSpriteId = spriteId; }
   resolveAsk(answer) { if (this.pendingAskResolve) { this.askInput.answer = answer; this.askInput.active = false; this.pendingAskResolve(); this.pendingAskResolve = null; } }
 }
@@ -369,6 +394,7 @@ export default function IDEEnhancedPage() {
   const [selectedToolboxCategory, setSelectedToolboxCategory] = useState('motion');
   const [searchQuery, setSearchQuery] = useState('');
   const [autoCompile, setAutoCompile] = useState(false);
+  const [blocklyError, setBlocklyError] = useState(null); // null | 'loading' | 'error'
 
   const navigate = useNavigate();
   const { type } = useParams();
@@ -458,7 +484,7 @@ export default function IDEEnhancedPage() {
 
   const fetchCloudProjects = useCallback(async () => {
     try {
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const user = safeGetJSON('user', {});
       const projects = await getProjects(user.id);
       setCloudProjects(projects.filter(p => p.type === projectType));
     } catch (error) { console.error('获取云端项目列表失败:', error); }
@@ -506,7 +532,7 @@ export default function IDEEnhancedPage() {
     };
     setSprites([defaultSprite]);
     setSelectedSprite(defaultSprite.id);
-    setProjectData({ stage: { backdrops: [{ id: generateId(), name: '背景1', dataUrl: '' }], currentBackdrop: 0 } });
+    setProjectData({ stage: { backdrops: [{ id: generateId(), name: '背景1', dataUrl: createDefaultBackdrop() }], currentBackdrop: 0 } });
   };
 
   const createDefaultCostume = (color) => {
@@ -568,9 +594,56 @@ export default function IDEEnhancedPage() {
     return canvas.toDataURL('image/png');
   };
 
+  const createDefaultBackdrop = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 480;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+
+    // Sky gradient backdrop
+    const gradient = ctx.createLinearGradient(0, 0, 0, 360);
+    gradient.addColorStop(0, '#1a1a4e');
+    gradient.addColorStop(0.5, '#3a3a8e');
+    gradient.addColorStop(1, '#2a5a3a');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 480, 360);
+
+    // Stars
+    ctx.fillStyle = '#FFFFFF';
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * 480;
+      const y = Math.random() * 180;
+      const r = Math.random() * 2 + 0.5;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Ground
+    ctx.fillStyle = '#2a5a2a';
+    ctx.fillRect(0, 260, 480, 100);
+    ctx.fillStyle = '#3a7a3a';
+    ctx.fillRect(0, 260, 480, 5);
+
+    return canvas.toDataURL('image/png');
+  };
+
   const loadBlockly = () => {
+    setBlocklyError('loading');
     const cdnBase = 'https://cdn.jsdelivr.net/npm/blockly';
     const version = '9.0.1';
+
+    const finalizeBlockly = () => {
+      setBlocklyError(null);
+      if (window.Blockly) {
+        defineBlocks(window.Blockly);
+        registerGenerators(window.Blockly);
+        registerPythonGenerators(window.Blockly);
+        initWorkspace();
+      } else {
+        setBlocklyError('error');
+      }
+    };
 
     const script = document.createElement('script');
     script.src = `${cdnBase}@${version}/blockly_compressed.js`;
@@ -581,18 +654,16 @@ export default function IDEEnhancedPage() {
       link.onload = () => {
         const msgScript = document.createElement('script');
         msgScript.src = `${cdnBase}@${version}/msg/zh-hans.js`;
-        msgScript.onload = () => {
-          if (window.Blockly) { defineBlocks(window.Blockly); registerGenerators(window.Blockly); registerPythonGenerators(window.Blockly); }
-          initWorkspace();
-        };
-        msgScript.onerror = () => { if (window.Blockly) { defineBlocks(window.Blockly); registerGenerators(window.Blockly); registerPythonGenerators(window.Blockly); } initWorkspace(); };
+        msgScript.onload = () => { finalizeBlockly(); };
+        msgScript.onerror = () => { finalizeBlockly(); };
         document.head.appendChild(msgScript);
       };
       link.onerror = () => {
         const backupLink = document.createElement('link');
         backupLink.rel = 'stylesheet';
         backupLink.href = 'https://blockly.googleapis.com/blockly/latest/blockly.css';
-        backupLink.onload = () => { if (window.Blockly) { defineBlocks(window.Blockly); registerGenerators(window.Blockly); registerPythonGenerators(window.Blockly); } initWorkspace(); };
+        backupLink.onload = () => { finalizeBlockly(); };
+        backupLink.onerror = () => { finalizeBlockly(); };
         document.head.appendChild(backupLink);
       };
       document.head.appendChild(link);
@@ -604,9 +675,11 @@ export default function IDEEnhancedPage() {
         const backupLink = document.createElement('link');
         backupLink.rel = 'stylesheet';
         backupLink.href = 'https://blockly.googleapis.com/blockly/latest/blockly.css';
-        backupLink.onload = () => { if (window.Blockly) { defineBlocks(window.Blockly); registerGenerators(window.Blockly); registerPythonGenerators(window.Blockly); } initWorkspace(); };
+        backupLink.onload = () => { finalizeBlockly(); };
+        backupLink.onerror = () => { finalizeBlockly(); };
         document.head.appendChild(backupLink);
       };
+      backupScript.onerror = () => { setBlocklyError('error'); };
       document.head.appendChild(backupScript);
     };
     document.head.appendChild(script);
@@ -631,7 +704,7 @@ export default function IDEEnhancedPage() {
         if (selectedSprite) {
           const sprite = sprites.find(s => s.id === selectedSprite);
           if (sprite?.scripts) {
-            try { const xmlDom = window.Blockly.Xml.textToDom(sprite.scripts); workspaceRef.current.clear(); window.Blockly.Xml.domToWorkspace(xmlDom, workspaceRef.current); } catch (e) {} }
+            try { const xmlDom = window.Blockly.Xml.textToDom(sprite.scripts); workspaceRef.current.clear(); window.Blockly.Xml.domToWorkspace(xmlDom, workspaceRef.current); } catch (e) { console.error('Blockly脚本加载失败:', e); } }
         }
         message.success('编程环境已就绪！');
       } catch (e) { console.error('Blockly初始化失败:', e); message.error('编程环境初始化失败'); }
@@ -724,19 +797,19 @@ export default function IDEEnhancedPage() {
     const backdrop = projectData.stage.backdrops[projectData.stage.currentBackdrop];
     if (backdrop?.dataUrl) { const img = new Image(); img.onload = () => ctx.drawImage(img, 0, 0, width, height); img.src = backdrop.dataUrl; }
     else { ctx.fillStyle = '#2a2a4a'; ctx.fillRect(0, 0, width, height); }
-    const sortedSprites = [...sprites].sort((a, b) => (runtimeState.sprites[a.id]?.layer || 0) - (runtimeState.sprites[b.id]?.layer || 0));
+    const sortedSprites = [...sprites].sort((a, b) => (runtimeState.sprites[a.id]?.layer ?? 0) - (runtimeState.sprites[b.id]?.layer ?? 0));
     sortedSprites.forEach(sprite => {
       const state = runtimeState.sprites[sprite.id] || {};
       if (!state.visible) return;
-      const costume = sprite.costumes[state.currentCostume || sprite.currentCostume];
+      const costume = sprite.costumes[state.currentCostume ?? sprite.currentCostume];
       if (!costume?.dataUrl) return;
       const img = new Image();
       img.onload = () => {
         ctx.save();
-        const scale = (state.size || sprite.size) / 100;
-        const radians = ((state.direction || sprite.direction) - 90) * Math.PI / 180;
-        const drawX = width / 2 + (state.x || sprite.x);
-        const drawY = height / 2 - (state.y || sprite.y);
+        const scale = (state.size ?? sprite.size) / 100;
+        const radians = ((state.direction ?? sprite.direction) - 90) * Math.PI / 180;
+        const drawX = width / 2 + (state.x ?? sprite.x);
+        const drawY = height / 2 - (state.y ?? sprite.y);
         ctx.translate(drawX, drawY); ctx.rotate(radians); ctx.scale(scale, scale);
         if (state.graphicEffects?.brightness) { ctx.filter = `brightness(${100 + state.graphicEffects.brightness}%)`; }
         ctx.drawImage(img, -img.width / 2, -img.height / 2);
@@ -752,7 +825,7 @@ export default function IDEEnhancedPage() {
     if (!code) return;
     const allSprites = [...sprites];
     const initialState = {};
-    allSprites.forEach(s => { initialState[s.id] = { x: s.x, y: s.y, direction: s.direction, visible: s.visible, size: s.size, currentCostume: s.currentCostume, saying: null, thinking: null, volume: 100, graphicEffects: {}, penDown: false, penColor: '#000000', penSize: 1 }; });
+    allSprites.forEach(s => { initialState[s.id] = { x: s.x, y: s.y, direction: s.direction, visible: s.visible, size: s.size, currentCostume: s.currentCostume, saying: null, thinking: null, volume: 100, graphicEffects: {}, soundEffects: {}, penDown: false, layer: 0, penColor: '#000000', penSize: 1 }; });
 
     const interpreter = new ScratchInterpreter(allSprites, { sprites: { ...initialState } }, {
       onStateChange: (newState) => { setRuntimeState(newState); },
@@ -766,7 +839,7 @@ export default function IDEEnhancedPage() {
         ctx.beginPath(); ctx.moveTo(drawOldX, drawOldY); ctx.lineTo(drawNewX, drawNewY);
         ctx.strokeStyle = color; ctx.lineWidth = size; ctx.lineCap = 'round'; ctx.stroke();
       },
-      onBroadcast: (message) => { console.log('Broadcast:', message); },
+      onBroadcast: (message) => { console.debug('[ScratchVM] Broadcast:', message); },
       onBackdropChange: (index) => { setProjectData(prev => ({ ...prev, stage: { ...prev.stage, currentBackdrop: index } })); },
       onNextBackdrop: () => { setProjectData(prev => ({ ...prev, stage: { ...prev.stage, currentBackdrop: (prev.stage.currentBackdrop + 1) % prev.stage.backdrops.length } })); },
     });
@@ -783,22 +856,29 @@ export default function IDEEnhancedPage() {
       const asyncFn = new AsyncFunction(code);
       await asyncFn(interpreter);
     } catch (e) { if (e.message !== 'STOP_SCRIPT') { console.error('Execution error:', e); } }
-    finally { if (interpreter.running) { setRuntimeState(prev => ({ ...prev, running: false })); setIsRunning(false); } }
+    finally { if (interpreter.running) { setRuntimeState(prev => ({ ...prev, running: false })); setIsRunning(false); } interpreter.destroy(); }
   };
 
   const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 
   const handlePlay = () => {
-    if (workspaceRef.current) {
+    if (!workspaceRef.current || !window.Blockly) {
+      message.warning('编程环境尚未就绪，请稍后再试');
+      return;
+    }
+    try {
       const xml = window.Blockly.Xml.workspaceToDom(workspaceRef.current);
       const scriptsXml = window.Blockly.Xml.domToText(xml);
       setSprites(prev => prev.map(s => s.id === selectedSprite ? { ...s, scripts: scriptsXml } : s));
       const code = window.Blockly.JavaScript.workspaceToCode(workspaceRef.current);
       executeCode(code);
+      setIsRunning(true);
+      setOutputVisible(true);
+      message.success('项目运行中...');
+    } catch (e) {
+      console.error('执行失败:', e);
+      message.error('代码执行失败');
     }
-    setIsRunning(true);
-    setOutputVisible(true);
-    message.success('项目运行中...');
   };
 
   const handleRunPython = async (pythonCode) => {
@@ -815,7 +895,8 @@ export default function IDEEnhancedPage() {
   };
 
   const getCppCode = () => {
-    if (workspaceRef.current && codeExecutorRef.current) {
+    if (!window.Blockly || !workspaceRef.current) return '';
+    if (codeExecutorRef.current) {
       const jsCode = window.Blockly.JavaScript.workspaceToCode(workspaceRef.current);
       return codeExecutorRef.current.generateCppCode(jsCode);
     }
@@ -883,7 +964,7 @@ export default function IDEEnhancedPage() {
   const handleSelectSprite = (id) => {
     setSelectedSprite(id);
     const sprite = sprites.find(s => s.id === id);
-    if (sprite && workspaceRef.current) {
+    if (sprite && workspaceRef.current && window.Blockly) {
       try { if (sprite.scripts) { const xmlDom = window.Blockly.Xml.textToDom(sprite.scripts); workspaceRef.current.clear(); window.Blockly.Xml.domToWorkspace(xmlDom, workspaceRef.current); } else { workspaceRef.current.clear(); } } catch (e) { workspaceRef.current.clear(); } }
   };
 
@@ -927,22 +1008,22 @@ export default function IDEEnhancedPage() {
   const handleSelectBackdrop = (index) => { setProjectData(prev => ({ ...prev, stage: { ...prev.stage, currentBackdrop: index } })); };
   const handleDeleteBackdrop = (index) => { if (projectData.stage.backdrops.length <= 1) { message.warning('至少保留一个背景'); return; } setProjectData(prev => ({ ...prev, stage: { ...prev.stage, backdrops: prev.stage.backdrops.filter((_, i) => i !== index), currentBackdrop: 0 } })); };
 
-  const getWorkspaceContent = () => { if (workspaceRef.current) { const xml = window.Blockly.Xml.workspaceToDom(workspaceRef.current); return window.Blockly.Xml.domToText(xml); } return ''; };
+  const getWorkspaceContent = () => { if (workspaceRef.current && window.Blockly) { const xml = window.Blockly.Xml.workspaceToDom(workspaceRef.current); return window.Blockly.Xml.domToText(xml); } return ''; };
 
   const handleSaveLocal = () => {
     const xmlText = getWorkspaceContent();
     const data = JSON.stringify({ sprites, projectData, cloudVariables });
-    localStorage.setItem('scratch-project', xmlText);
-    localStorage.setItem('scratch-project-name', projectName);
-    localStorage.setItem('scratch-project-type', projectType);
-    localStorage.setItem('scratch-project-data', data);
+    safeSetItem('scratch-project', xmlText);
+    safeSetItem('scratch-project-name', projectName);
+    safeSetItem('scratch-project-type', projectType);
+    safeSetItem('scratch-project-data', data);
     message.success('项目已保存到本地！');
   };
 
   const handleSaveToCloud = async () => {
     const xmlText = getWorkspaceContent();
     const data = JSON.stringify({ sprites, projectData, cloudVariables });
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = safeGetJSON('user', {});
     try {
       if (projectId) { await updateProject(projectId, { name: projectName, content: xmlText, projectData: data }); message.success('项目已更新到云端！'); }
       else { const result = await createProject({ name: projectName, type: projectType, content: xmlText, projectData: data, userId: user.id }); setProjectId(result.id); message.success('项目已保存到云端！'); }
@@ -976,8 +1057,8 @@ export default function IDEEnhancedPage() {
           if (data.sprites?.length > 0) { setSelectedSprite(data.sprites[0].id); }
         } catch (e) { console.error('解析项目数据失败:', e); }
       }
-      fetchCloudVariables(id).then(result => { if (result?.result) { setCloudVariables(result.result); } }).catch(() => {});
-      if (workspaceRef.current && project.content) {
+      fetchCloudVariables(id).then(result => { if (result?.result) { setCloudVariables(result.result); } }).catch((e) => { console.error('获取云变量失败:', e); });
+      if (workspaceRef.current && window.Blockly && project.content) {
         try { const xmlDom = window.Blockly.Xml.textToDom(project.content); workspaceRef.current.clear(); window.Blockly.Xml.domToWorkspace(xmlDom, workspaceRef.current); } catch (e) { console.error('加载项目失败:', e); message.error('加载项目失败'); }
       }
       setLastSavedContent(project.content || '');
@@ -990,10 +1071,10 @@ export default function IDEEnhancedPage() {
   const handleDeleteProject = async (id) => { try { await deleteProject(id); message.success('项目已删除'); fetchCloudProjects(); if (projectId === id) setProjectId(null); } catch (error) { console.error('删除失败:', error); message.error('删除失败，请重试'); } };
 
   const handleRemixProject = async (id) => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = safeGetJSON('user', {});
     if (!user.id) { message.error('请先登录'); return; }
     try {
-      const remixed = await remixProject(id, user.id);
+      const remixed = await remixProject(id);
       if (remixed) {
         setProjectId(remixed.id);
         setProjectName(remixed.name);
@@ -1006,7 +1087,7 @@ export default function IDEEnhancedPage() {
             if (data.sprites?.length > 0) { setSelectedSprite(data.sprites[0].id); }
           } catch (e) { console.error('解析项目数据失败:', e); }
         }
-        if (workspaceRef.current && remixed.content) {
+        if (workspaceRef.current && window.Blockly && remixed.content) {
           try { const xmlDom = window.Blockly.Xml.textToDom(remixed.content); workspaceRef.current.clear(); window.Blockly.Xml.domToWorkspace(xmlDom, workspaceRef.current); } catch (e) { console.error('加载项目失败:', e); }
         }
         setLastSavedContent(remixed.content || '');
@@ -1050,7 +1131,7 @@ export default function IDEEnhancedPage() {
       try {
         const data = JSON.parse(e.target.result);
         if (data.name) setProjectName(data.name);
-        if (data.content && workspaceRef.current) {
+        if (data.content && workspaceRef.current && window.Blockly) {
           try { const xmlDom = window.Blockly.Xml.textToDom(data.content); workspaceRef.current.clear(); window.Blockly.Xml.domToWorkspace(xmlDom, workspaceRef.current); } catch (err) { message.error('加载项目块失败'); }
         }
         if (data.projectData) {
@@ -1066,6 +1147,26 @@ export default function IDEEnhancedPage() {
     };
     reader.readAsText(file);
   };
+
+  const handleBeforeImportProject = useCallback((file) => {
+    handleImportProject(file);
+    return false;
+  }, [handleImportProject]);
+
+  const handleBeforeAddBackdrop = useCallback((file) => {
+    handleAddBackdrop(file);
+    return false;
+  }, [handleAddBackdrop]);
+
+  const handleBeforeAddCostume = useCallback((file) => {
+    handleAddCostume(file);
+    return false;
+  }, [handleAddCostume]);
+
+  const handleBeforeAddSound = useCallback((file) => {
+    handleAddSound(file);
+    return false;
+  }, [handleAddSound]);
 
   const selectedSpriteData = sprites.find(s => s.id === selectedSprite);
 
@@ -1134,16 +1235,18 @@ export default function IDEEnhancedPage() {
         <div className="header-right">
           <Space size="small">
             <Button icon={<FolderOpenOutlined />} onClick={() => setLoadModalVisible(true)} className="header-btn">打开</Button>
-            <Dropdown overlay={
-              <Space direction="vertical" style={{ padding: 8 }} className="save-dropdown">
-                <Button icon={<SaveOutlined />} onClick={handleSaveLocal} block>保存到本地</Button>
-                <Button icon={<CloudOutlined />} onClick={() => setSaveModalVisible(true)} block>保存到云端</Button>
-                <Button icon={<DownloadOutlined />} onClick={handleExportProject} block>导出项目</Button>
-                <Dragger showUploadList={false} beforeUpload={(file) => { handleImportProject(file); return false; }} accept=".json">
-                  <Button icon={<UploadOutlined />} block>导入项目</Button>
-                </Dragger>
-              </Space>
-            }}>
+            <Dropdown dropdownRender={() => (
+              <div style={{ background: '#fff', borderRadius: 8, boxShadow: '0 3px 6px -4px rgba(0,0,0,0.12), 0 6px 16px 0 rgba(0,0,0,0.08), 0 9px 28px 8px rgba(0,0,0,0.05)' }}>
+                <Space direction="vertical" style={{ padding: 8 }} className="save-dropdown">
+                  <Button icon={<SaveOutlined />} onClick={handleSaveLocal} block>保存到本地</Button>
+                  <Button icon={<CloudOutlined />} onClick={() => setSaveModalVisible(true)} block>保存到云端</Button>
+                  <Button icon={<DownloadOutlined />} onClick={handleExportProject} block>导出项目</Button>
+                  <Dragger showUploadList={false} beforeUpload={handleBeforeImportProject} accept=".json">
+                    <Button icon={<UploadOutlined />} block>导入项目</Button>
+                  </Dragger>
+                </Space>
+              </div>
+            )}>
               <Button icon={<SaveOutlined />} className="header-btn">保存</Button>
             </Dropdown>
             <Tooltip title={themeMode === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}>
@@ -1173,12 +1276,12 @@ export default function IDEEnhancedPage() {
                     {sprite.costumes[0]?.dataUrl ? <img src={sprite.costumes[0].dataUrl} alt={sprite.name} /> : <div className="sprite-placeholder" />}
                   </div>
                   <span className="sprite-label">{sprite.name}</span>
-                  <Dropdown overlay={
-                    <Space direction="vertical" size="small">
-                      <Button type="text" size="small" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); setEditingSpriteName(sprite.name); setSpriteModalVisible(true); }}>重命名</Button>
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); handleDeleteSprite(sprite.id); }}>删除</Button>
-                    </Space>
-                  }>
+                  <Dropdown menu={{
+                    items: [
+                      { key: 'rename', label: '重命名', icon: <EditOutlined />, onClick: ({ domEvent }) => { domEvent.stopPropagation(); setEditingSpriteName(sprite.name); setSpriteModalVisible(true); } },
+                      { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: ({ domEvent }) => { domEvent.stopPropagation(); handleDeleteSprite(sprite.id); } },
+                    ]
+                  }}>
                     <Button type="text" size="small" icon={<CustomerServiceOutlined />} onClick={e => e.stopPropagation()} />
                   </Dropdown>
                 </div>
@@ -1239,7 +1342,31 @@ export default function IDEEnhancedPage() {
 
         {/* Center - Blockly Workspace */}
         <main className="blockly-area">
-          <div id="blocks-editor" className="blocks-editor-enhanced" />
+          {blocklyError === 'loading' && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', color: '#888' }}>
+              <div style={{ fontSize: 18, marginBottom: 12 }}>正在加载积木编辑器...</div>
+              <div style={{ fontSize: 13, color: '#aaa' }}>正在从CDN加载 Blockly，请稍候</div>
+            </div>
+          )}
+          {blocklyError === 'error' && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column' }}>
+              <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.4 }}>!</div>
+              <div style={{ fontSize: 18, marginBottom: 12, color: '#ff4d4f', fontWeight: 500 }}>
+                积木编辑器加载失败
+              </div>
+              <div style={{ fontSize: 13, color: '#666', textAlign: 'center', lineHeight: 1.6, marginBottom: 16, maxWidth: 360 }}>
+                无法从 CDN 加载 Blockly。请检查网络连接后刷新页面重试。
+                <br />
+                如使用的是桌面客户端，请确认已连接互联网。
+              </div>
+              <Button onClick={() => { setBlocklyError(null); loadBlockly(); }}>
+                重试加载
+              </Button>
+            </div>
+          )}
+          {!blocklyError && (
+            <div id="blocks-editor" className="blocks-editor-enhanced" />
+          )}
         </main>
 
         {/* Right Sidebar - Stage */}
@@ -1265,7 +1392,7 @@ export default function IDEEnhancedPage() {
                     </div>
                   </Tooltip>
                 ))}
-                <Dragger showUploadList={false} beforeUpload={(file) => { handleAddBackdrop(file); return false; }}>
+                <Dragger showUploadList={false} beforeUpload={handleBeforeAddBackdrop}>
                   <div className="backdrop-add"><PlusOutlined /></div>
                 </Dragger>
               </div>
@@ -1359,54 +1486,48 @@ export default function IDEEnhancedPage() {
 
       {/* Footer Tabs */}
       <footer className="ide-footer-enhanced">
-        <Tabs activeKey={activeTab} onChange={setActiveTab} size="small">
-          <TabPane tab={<span><CodeOutlined /> 脚本</span>} key="scripts">
-            <div className="tab-hint">在左侧选择角色，然后拖拽积木编写程序</div>
-          </TabPane>
-          <TabPane tab={<span>👔 造型</span>} key="costumes">
-            {selectedSpriteData && (
-              <div className="costumes-grid">
-                <div className="costumes-header">
-                  <span>造型列表 - {selectedSpriteData.name}</span>
-                  <Dragger showUploadList={false} beforeUpload={(file) => { handleAddCostume(file); return false; }}>
-                    <Button icon={<UploadOutlined />}>上传造型</Button>
-                  </Dragger>
-                </div>
-                <div className="costumes-list">
-                  {selectedSpriteData.costumes.map((costume, idx) => (
-                    <div key={costume.id} className={`costume-item ${selectedSpriteData.currentCostume === idx ? 'selected' : ''}`} onClick={() => handleSelectCostume(costume.id)}>
-                      <img src={costume.dataUrl} alt={costume.name} />
-                      <span>{costume.name}</span>
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); handleDeleteCostume(costume.id); }} />
-                    </div>
-                  ))}
-                </div>
+        <Tabs activeKey={activeTab} onChange={setActiveTab} size="small" items={[
+          { key: 'scripts', label: <span><CodeOutlined /> 脚本</span>, children: <div className="tab-hint">在左侧选择角色，然后拖拽积木编写程序</div> },
+          { key: 'costumes', label: <span>👔 造型</span>, children: selectedSpriteData && (
+            <div className="costumes-grid">
+              <div className="costumes-header">
+                <span>造型列表 - {selectedSpriteData.name}</span>
+                <Dragger showUploadList={false} beforeUpload={handleBeforeAddCostume}>
+                  <Button icon={<UploadOutlined />}>上传造型</Button>
+                </Dragger>
               </div>
-            )}
-          </TabPane>
-          <TabPane tab={<span>🔊 声音</span>} key="sounds">
-            {selectedSpriteData && (
-              <div className="sounds-grid">
-                <div className="sounds-header">
-                  <span>声音列表 - {selectedSpriteData.name}</span>
-                  <Dragger showUploadList={false} beforeUpload={(file) => { handleAddSound(file); return false; }}>
-                    <Button icon={<UploadOutlined />}>上传声音</Button>
-                  </Dragger>
-                </div>
-                <div className="sounds-list">
-                  {selectedSpriteData.sounds.length === 0 && <Empty description="暂无声音" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
-                  {selectedSpriteData.sounds.map(sound => (
-                    <div key={sound.id} className="sound-item">
-                      <SoundOutlined />
-                      <span>{sound.name}</span>
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteSound(sound.id)} />
-                    </div>
-                  ))}
-                </div>
+              <div className="costumes-list">
+                {selectedSpriteData.costumes.map((costume, idx) => (
+                  <div key={costume.id} className={`costume-item ${selectedSpriteData.currentCostume === idx ? 'selected' : ''}`} onClick={() => handleSelectCostume(costume.id)}>
+                    <img src={costume.dataUrl} alt={costume.name} />
+                    <span>{costume.name}</span>
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); handleDeleteCostume(costume.id); }} />
+                  </div>
+                ))}
               </div>
-            )}
-          </TabPane>
-        </Tabs>
+            </div>
+          )},
+          { key: 'sounds', label: <span>🔊 声音</span>, children: selectedSpriteData && (
+            <div className="sounds-grid">
+              <div className="sounds-header">
+                <span>声音列表 - {selectedSpriteData.name}</span>
+                <Dragger showUploadList={false} beforeUpload={handleBeforeAddSound}>
+                  <Button icon={<UploadOutlined />}>上传声音</Button>
+                </Dragger>
+              </div>
+              <div className="sounds-list">
+                {selectedSpriteData.sounds.length === 0 && <Empty description="暂无声音" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+                {selectedSpriteData.sounds.map(sound => (
+                  <div key={sound.id} className="sound-item">
+                    <SoundOutlined />
+                    <span>{sound.name}</span>
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteSound(sound.id)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )},
+        ]} />
       </footer>
 
       {/* Modals */}

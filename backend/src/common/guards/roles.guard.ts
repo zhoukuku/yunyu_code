@@ -1,7 +1,7 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
-import { Role } from '../../auth/role.enum';
+import { Role, RoleLabels } from '../../auth/role.enum';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -27,7 +27,10 @@ export class RolesGuard implements CanActivate {
     const hasRole = requiredRoles.some((role) => user.role === role);
 
     if (!hasRole) {
-      throw new ForbiddenException('没有权限访问此接口，需要管理员权限');
+      const roleNames = requiredRoles
+        .map((r) => RoleLabels[r] || `Role[${r}]`)
+        .join('、');
+      throw new ForbiddenException(`没有权限访问此接口，需要以下角色之一: ${roleNames}`);
     }
 
     return true;

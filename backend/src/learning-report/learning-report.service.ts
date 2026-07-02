@@ -107,6 +107,15 @@ export class LearningReportService {
       courseSkillMap.get(key)!.push(cs);
     }
 
+    // Pre-build map from courseId to Set of skill names for O(1) lookup
+    const skillNamesByCourseId = new Map<number, Set<string>>();
+    for (const cs of allCourseSkills) {
+      if (!skillNamesByCourseId.has(cs.courseId)) {
+        skillNamesByCourseId.set(cs.courseId, new Set());
+      }
+      skillNamesByCourseId.get(cs.courseId)!.add(cs.skillName);
+    }
+
     // Get user's enrolled courses for course count
     const enrolledCourses = await this.userCourseRepository.find({
       where: { userId, status: 1 },
@@ -127,8 +136,8 @@ export class LearningReportService {
           categoryName: category.categoryName,
           masteryLevel: userProgress?.masteryLevel || 0,
           associatedCourses: enrolledCourseIds.filter(cid => {
-            const courseSkills = allCourseSkills.filter(c => c.courseId === cid);
-            return courseSkills.some(c => c.skillName === cs.skillName);
+            const skills = skillNamesByCourseId.get(cid);
+            return skills ? skills.has(cs.skillName) : false;
           }).length,
           lastPracticedAt: userProgress?.lastPracticedAt || null,
         });
@@ -201,7 +210,7 @@ export class LearningReportService {
 
     // Update skill mastery based on course completion
     for (const cs of courseSkills) {
-      const baseMastery = cs.skillLevel || 1;
+      const baseMastery = cs.skillLevel ?? 1;
       const newMastery = Math.min(100, Math.round(completionRate * baseMastery));
 
       await this.updateSkillProgress(userId, cs.skillName, newMastery);
@@ -307,6 +316,12 @@ export class LearningReportService {
       coursesEnrolled: enrolledCourses.length,
       coursesCompleted: completedCourses,
       averageProgress,
+      summary: JSON.stringify({
+        topSkills,
+        weakSkills,
+        recentAchievements,
+        generatedAt: now.toISOString(),
+      }),
     });
     const savedReport = await this.learningReportRepository.save(report);
 

@@ -3,13 +3,13 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as cookieParser from 'cookie-parser';
 import * as express from 'express';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import helmet from 'helmet';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { SensitiveDataInterceptor } from './common/filters/sensitive-data.filter';
-import { SecurityHeadersMiddleware } from './common/middleware/security-headers.middleware';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { Logger } from '@nestjs/common';
+import { SeedService } from './seed/seed.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -67,7 +67,7 @@ async function bootstrap() {
           }
           return `${err.property}: validation error`;
         });
-        return new (require('@nestjs/common').BadRequestException)({
+        return new BadRequestException({
           message: messages,
           errorCode: 'VALIDATION_ERROR',
           errors: errors.map((err) => ({
@@ -84,8 +84,8 @@ async function bootstrap() {
   app.useGlobalInterceptors(new SensitiveDataInterceptor());
 
   // 7) 请求体大小限制
-  app.use(express.json({ limit: '10kb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // 8) Cookie 解析器
   app.use(cookieParser());
@@ -106,7 +106,11 @@ async function bootstrap() {
   // 11) 关闭静默警告
   app.set('trust proxy', 1);
 
-  const port = process.env.PORT || 3000;
+  // 自动初始化种子数据（仅在数据库为空时执行）
+  const seedService = app.get(SeedService);
+  await seedService.seedIfEmpty();
+
+  const port = process.env.PORT ?? 3000;
   await app.listen(port);
   logger.log(`🚀 服务运行在 http://localhost:${port}`);
   logger.log(`🔒 安全功能已启用: Helmet, CORS, 全局异常过滤, 输入验证, 敏感数据过滤`);

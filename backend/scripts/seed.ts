@@ -6,8 +6,6 @@ import { DataSource, Repository } from 'typeorm';
 import { Hierarchy, Course, Lesson, Notice } from '../src/entities/course.entity';
 import { User } from '../src/entities/user.entity';
 import { Homework, HomeworkSubmission } from '../src/entities/homework.entity';
-import * as bcrypt from 'bcrypt';
-
 const dataSource = new DataSource({
   type: 'sqlite',
   database: 'database.sqlite',
@@ -271,7 +269,7 @@ async function seed() {
       // 为每个课程创建课时
       for (let i = 1; i <= c.totalLessons; i++) {
         const lessonTemplate = lessonTemplates[(i - 1) % lessonTemplates.length];
-        const lessonData: any = {
+        const lessonData: Record<string, unknown> = {
           courseId: course.id,
           lessonName: `第${i}课: ${lessonTemplate.name}`,
           lessonOrder: i,
@@ -333,7 +331,7 @@ async function seed() {
 
   // 4. 创建更多测试用户
   console.log('\n👤 创建测试用户...');
-  const hashedPassword = await bcrypt.hash('password123', 10);
+  const defaultPassword = 'Qima@2024';
 
   const teachers = [
     { username: 'teacher_li', account: 'li.teacher@test.com', name: '李老师', classes: ['Scratch零基础入门', 'Scratch进阶提高', 'Scratch创意动画'] },
@@ -364,14 +362,14 @@ async function seed() {
       const teacher = userRepo.create({
         username: t.username,
         account: t.account,
-        password: hashedPassword,
+        password: defaultPassword,
         name: t.name,
         role: 3,
         userType: 2,
         status: 1,
       });
       await userRepo.save(teacher);
-      console.log(`  ✓ 教师账号: ${t.account} / password123 (${t.name})`);
+      console.log(`  ✓ 教师账号: ${t.account} / Qima@2024 (${t.name})`);
     } else {
       console.log(`  - 已存在: ${t.account}`);
     }
@@ -384,14 +382,14 @@ async function seed() {
       const student = userRepo.create({
         username: s.username,
         account: s.account,
-        password: hashedPassword,
+        password: defaultPassword,
         name: s.name,
         role: 2,
         userType: 2,
         status: 1,
       });
       await userRepo.save(student);
-      console.log(`  ✓ 学生账号: ${s.account} / password123 (${s.name})`);
+      console.log(`  ✓ 学生账号: ${s.account} / Qima@2024 (${s.name})`);
     } else {
       console.log(`  - 已存在: ${s.account}`);
     }
@@ -404,44 +402,44 @@ async function seed() {
     const admin = userRepo.create({
       username: 'admin',
       account: 'admin@test.com',
-      password: hashedPassword,
+      password: defaultPassword,
       name: '系统管理员',
       role: 1,
       userType: 2,
       status: 1,
     });
     await userRepo.save(admin);
-    console.log('  ✓ 管理员账号: admin@test.com / password123');
+    console.log('  ✓ 管理员账号: admin@test.com / Qima@2024');
   } else {
     console.log('  - 已存在: admin@test.com 或 admin 用户');
   }
 
-  // 创建/更新测试管理员账号 (admin / admin)
-  const hashedPasswordAdmin = await bcrypt.hash('admin', 10);
+  // 创建/更新测试管理员账号 (admin / Admin@2024)
+  const defaultPasswordAdmin = 'Admin@2024';
   const existingAdmin = await userRepo.findOne({ where: { account: 'admin' } });
   if (existingAdmin) {
-    existingAdmin.password = hashedPasswordAdmin;
+    existingAdmin.password = defaultPasswordAdmin;
     existingAdmin.username = 'admin';
     existingAdmin.name = '管理员';
     existingAdmin.role = 1;
     existingAdmin.userType = 1;
     existingAdmin.status = 1;
     await userRepo.save(existingAdmin);
-    console.log('  ✓ 管理员账号已更新: admin / admin');
+    console.log('  ✓ 管理员账号已更新: admin / Admin@2024');
   } else {
     const byUsername = await userRepo.findOne({ where: { username: 'admin' } });
     if (!byUsername) {
       const newAdmin = userRepo.create({
         username: 'admin',
         account: 'admin',
-        password: hashedPasswordAdmin,
+        password: defaultPasswordAdmin,
         name: '管理员',
         role: 1,
         userType: 1,
         status: 1,
       });
       await userRepo.save(newAdmin);
-      console.log('  ✓ 管理员账号已创建: admin / admin');
+      console.log('  ✓ 管理员账号已创建: admin / Admin@2024');
     } else {
       console.log('  - admin 用户名已被占用');
     }

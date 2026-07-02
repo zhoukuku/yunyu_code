@@ -37,6 +37,9 @@ export class Organization {
   @Column({ nullable: true })
   logo: string;
 
+  @Column({ type: 'int', nullable: true })
+  ownerId: number;
+
   @Column({ type: 'int', default: 0 })
   classCount: number;
 

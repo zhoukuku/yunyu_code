@@ -1,22 +1,51 @@
-import { Injectable, UnauthorizedException, ForbiddenException, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, Logger, BadRequestException, ConflictException, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { User } from '../entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
-const SALT_ROUNDS = 12;
-const ACCESS_TOKEN_EXPIRES_IN = '15m';
-const REFRESH_TOKEN_EXPIRES_IN = '7d';
+const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? '15m';
+const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN ?? '7d';
 
 // In-memory store for revoked tokens (use Redis in production)
 const revokedTokens = new Set<string>();
-const loginAttempts = new Map<string, { count: number; lockedUntil: number }>();
+const loginAttempts = new Map<string, { count: number; lockedUntil: number; lastAttempt: number }>();
+
+// 定期清理过期数据，防止内存泄漏
+const CLEANUP_INTERVAL = 10 * 60 * 1000; // 每10分钟清理一次
+// 未锁定的记录保留30分钟未活动后清理；已锁定的在锁定期过后清理
+const UNLOCKED_TTL = 30 * 60 * 1000;
+
+// revokedTokens 依赖 refresh token 过期（7天），定期清理以避免无限增长
+// 保守策略：保留最近14天的 token ID（基于时间戳前缀）
+const loginAttemptCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, attempt] of loginAttempts) {
+    const isLocked = attempt.lockedUntil > 0;
+    const isExpired = isLocked
+      ? attempt.lockedUntil < now
+      : attempt.lastAttempt > 0 && (now - attempt.lastAttempt) > UNLOCKED_TTL;
+    if (isExpired) {
+      loginAttempts.delete(key);
+    }
+  }
+}, CLEANUP_INTERVAL);
+
+const revokedTokenCleanupInterval = setInterval(() => {
+  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  for (const tokenId of revokedTokens) {
+    const timestamp = parseInt(tokenId.split('-')[0], 10);
+    if (!isNaN(timestamp) && timestamp < cutoff) {
+      revokedTokens.delete(tokenId);
+    }
+  }
+}, CLEANUP_INTERVAL);
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleDestroy {
   private readonly MAX_LOGIN_ATTEMPTS = 5;
   private readonly LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
   private readonly logger = new Logger(AuthService.name);
@@ -27,12 +56,26 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
+  onModuleDestroy() {
+    clearInterval(loginAttemptCleanupInterval);
+    clearInterval(revokedTokenCleanupInterval);
+  }
+
   async login(loginDto: LoginDto) {
     const { account, password } = loginDto;
-    const ipKey = `ip:${account}`;
+
+    // Defense in depth: reject missing/empty credentials before any DB operations
+    if (!account || typeof account !== 'string' || account.trim().length === 0) {
+      throw new BadRequestException('账号不能为空');
+    }
+    if (!password || typeof password !== 'string' || password.trim().length === 0) {
+      throw new BadRequestException('密码不能为空');
+    }
+
+    const attemptKey = `attempt:${account}`;
 
     // Check account lockout
-    const attempts = loginAttempts.get(ipKey);
+    const attempts = loginAttempts.get(attemptKey);
     if (attempts && attempts.lockedUntil > Date.now()) {
       const remainingMinutes = Math.ceil((attempts.lockedUntil - Date.now()) / 60000);
       throw new ForbiddenException(`账户已被锁定，请 ${remainingMinutes} 分钟后再试`);
@@ -44,7 +87,7 @@ export class AuthService {
     });
 
     if (!user) {
-      this.recordFailedAttempt(ipKey);
+      this.recordFailedAttempt(attemptKey);
       throw new UnauthorizedException('用户名或密码错误');
     }
 
@@ -53,20 +96,21 @@ export class AuthService {
       throw new ForbiddenException('账户已被禁用');
     }
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    // Verify password (plaintext)
+    const isPasswordValid = password === user.password;
     if (!isPasswordValid) {
-      this.recordFailedAttempt(ipKey);
+      this.recordFailedAttempt(attemptKey);
       throw new UnauthorizedException('用户名或密码错误');
     }
 
     // Clear failed attempts on successful login
-    loginAttempts.delete(ipKey);
+    loginAttempts.delete(attemptKey);
 
     // Generate tokens with rotation
     const payload = {
       sub: user.id,
       username: user.username,
+      account: user.account,
       userType: user.userType,
       role: user.role,
       type: 'access',
@@ -128,6 +172,7 @@ export class AuthService {
       const newPayload = {
         sub: user.id,
         username: user.username,
+        account: user.account,
         userType: user.userType,
         role: user.role,
         type: 'access',
@@ -191,7 +236,7 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto) {
-    const { username, account, password, name, role } = registerDto;
+    const { username, account, password, name, role, userType } = registerDto;
 
     // Validate password is provided and not empty
     if (!password || typeof password !== 'string' || password.trim().length === 0) {
@@ -203,20 +248,27 @@ export class AuthService {
       where: [{ account }, { username }],
     });
     if (existingUser) {
-      throw new UnauthorizedException('用户名或账号已存在');
+      throw new ConflictException('用户名或账号已存在');
     }
 
-    if (password.length < 6) {
-      throw new BadRequestException('密码至少6个字符');
+    if (password.length < 8) {
+      throw new BadRequestException('密码至少8个字符');
+    }
+    if (password.length > 64) {
+      throw new BadRequestException('密码最多64个字符');
+    }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
+      throw new BadRequestException('密码必须包含大小写字母和数字');
     }
 
-    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+    // Store password (plaintext)
     const user = this.usersRepository.create({
       username,
       account,
-      password: hashedPassword,
+      password,
       name: name || username,
       role: role ?? 3, // Default to STUDENT role
+      userType: userType ?? 2, // Default to STUDENT type
     });
     return this.usersRepository.save(user);
   }
@@ -224,9 +276,10 @@ export class AuthService {
   private recordFailedAttempt(key: string): void {
     let attempts = loginAttempts.get(key);
     if (!attempts) {
-      attempts = { count: 0, lockedUntil: 0 };
+      attempts = { count: 0, lockedUntil: 0, lastAttempt: 0 };
     }
     attempts.count++;
+    attempts.lastAttempt = Date.now();
 
     if (attempts.count >= this.MAX_LOGIN_ATTEMPTS) {
       attempts.lockedUntil = Date.now() + this.LOCKOUT_DURATION;
@@ -236,6 +289,6 @@ export class AuthService {
   }
 
   private generateTokenId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+    return `${Date.now()}-${randomUUID()}`;
   }
 }

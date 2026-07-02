@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Table, Tag, Button, Switch, Input, Card, Modal, message, Popconfirm, Form, Select, InputNumber, Space } from 'antd';
+import { useEffect, useState, useCallback } from 'react';
+import { Table, Button, Switch, Input, Card, Modal, message, Popconfirm, Form, InputNumber, Space } from 'antd';
 import { getAdminCourses, updateCourseStatus, deleteCourse, createCourse, updateCourse } from '../../services/api';
 
 export default function CourseManage() {
@@ -9,31 +9,41 @@ export default function CourseManage() {
   const [statusFilter, setStatusFilter] = useState(undefined);
   const [formVisible, setFormVisible] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
 
-  const fetchCourses = async () => {
+  const fetchCourses = useCallback(async (page, pageSize) => {
+    const p = page !== undefined ? page : pagination.current;
+    const ps = pageSize !== undefined ? pageSize : pagination.pageSize;
     setLoading(true);
     try {
-      const filters = {};
+      const filters = { page: p, pageSize: ps };
       if (searchText) filters.search = searchText;
       if (statusFilter !== undefined) filters.status = statusFilter;
       const res = await getAdminCourses(null, filters);
-      if (res.status === 200) {
-        setData(res.result.records || []);
+      if (res.status === 200 && res.result) {
+        const records = res.result.records || [];
+        setData(records);
+        setPagination({
+          current: res.result.current || p,
+          pageSize: res.result.size || ps,
+          total: res.result.total || records.length,
+        });
       }
     } catch (e) {
-      message.error('获取课程列表失败');
+      message.error(e.response?.data?.message || '获取课程列表失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.current, pagination.pageSize, searchText, statusFilter]);
 
   useEffect(() => {
-    fetchCourses();
-  }, [statusFilter]);
+    fetchCourses(1, pagination.pageSize);
+  }, [statusFilter, fetchCourses, pagination.pageSize]);
 
   const handleSearch = () => {
-    fetchCourses();
+    fetchCourses(1, pagination.pageSize);
   };
 
   const handleStatusChange = async (id, checked) => {
@@ -44,7 +54,7 @@ export default function CourseManage() {
         fetchCourses();
       }
     } catch (e) {
-      message.error('状态更新失败');
+      message.error(e.response?.data?.message || '状态更新失败');
     }
   };
 
@@ -53,10 +63,11 @@ export default function CourseManage() {
       const res = await deleteCourse(id);
       if (res.status === 200) {
         message.success('课程删除成功');
-        fetchCourses();
+        const targetPage = data.length <= 1 && pagination.current > 1 ? pagination.current - 1 : pagination.current;
+        fetchCourses(targetPage, pagination.pageSize);
       }
     } catch (e) {
-      message.error('删除失败');
+      message.error(e.response?.data?.message || '删除失败');
     }
   };
 
@@ -83,19 +94,26 @@ export default function CourseManage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      let res;
-      if (editingCourse) {
-        res = await updateCourse(editingCourse.id, values);
-      } else {
-        res = await createCourse(values);
+      setSubmitting(true);
+      try {
+        let res;
+        if (editingCourse) {
+          res = await updateCourse(editingCourse.id, values);
+        } else {
+          res = await createCourse(values);
+        }
+        if (res.status === 200) {
+          message.success(editingCourse ? '课程更新成功' : '课程创建成功');
+          setFormVisible(false);
+          fetchCourses();
+        }
+      } catch (e) {
+        message.error(e.response?.data?.message || (editingCourse ? '更新失败' : '创建失败'));
+      } finally {
+        setSubmitting(false);
       }
-      if (res.status === 200) {
-        message.success(editingCourse ? '课程更新成功' : '课程创建成功');
-        setFormVisible(false);
-        fetchCourses();
-      }
-    } catch (e) {
-      message.error(editingCourse ? '更新失败' : '创建失败');
+    } catch (validationError) {
+      // Form validation failed — Ant Design already shows field-level errors
     }
   };
 
@@ -158,13 +176,19 @@ export default function CourseManage() {
         dataSource={data}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize: 10, showTotal: (total) => `共 ${total} 条` }}
+        pagination={{
+          ...pagination,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`,
+          onChange: (page, pageSize) => fetchCourses(page, pageSize),
+        }}
       />
       <Modal
         title={editingCourse ? '编辑课程' : '创建课程'}
         open={formVisible}
         onOk={handleSubmit}
         onCancel={() => setFormVisible(false)}
+        confirmLoading={submitting}
         okText="确认"
         cancelText="取消"
       >

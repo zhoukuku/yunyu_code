@@ -25,7 +25,7 @@ export class BatchAccountItemDto {
   @IsOptional()
   @IsNumber()
   @Min(1)
-  @Max(3)
+  @Max(4)
   role?: number;
 
   @IsOptional()
@@ -55,7 +55,7 @@ export class SetRoleDto {
 
   @IsNumber()
   @Min(1)
-  @Max(3)
+  @Max(4)
   role: number;
 }
 

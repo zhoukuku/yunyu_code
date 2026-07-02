@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import { Layout as AntLayout } from 'antd';
 import Header from './Header';
 import { PageTransition } from './PageTransition';
+import { ErrorBoundary } from './ErrorBoundary';
 
 const { Content, Footer } = AntLayout;
 
@@ -20,7 +21,9 @@ export default function Layout() {
         className="main-content"
       >
         <PageTransition>
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </PageTransition>
       </Content>
       <Footer
@@ -43,7 +46,7 @@ export default function Layout() {
       </Footer>
 
       <style>{`
-        @media (max-width: 768px) {
+        @media (max-width: 992px) {
           .main-content {
             padding: 16px !important;
           }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Tag, Button, Switch, Select, Modal, message, Card, Input, Space, Popconfirm } from 'antd';
 import { getAdminUsers, updateUserStatus, updateUserRole, createUser, deleteUser } from '../../services/api';
 
@@ -7,13 +7,9 @@ const { Search } = Input;
 
 const roleMap = {
   1: { label: '管理员', color: 'red' },
-  2: { label: '普通用户', color: 'blue' },
-  3: { label: '教师', color: 'green' },
-};
-
-const statusMap = {
-  1: { label: '启用', color: 'success' },
-  0: { label: '禁用', color: 'default' },
+  2: { label: '教师', color: 'blue' },
+  3: { label: '学生', color: 'green' },
+  4: { label: '家长', color: 'orange' },
 };
 
 export default function UserManage() {
@@ -22,6 +18,7 @@ export default function UserManage() {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
   const [editingRole, setEditingRole] = useState(null);
   const [selectedRole, setSelectedRole] = useState(null);
+  const [savingRoleId, setSavingRoleId] = useState(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -34,28 +31,28 @@ export default function UserManage() {
   });
   const [createLoading, setCreateLoading] = useState(false);
 
-  const fetchUsers = async (page = 1, pageSize = 10, keyword = '') => {
+  const fetchUsers = useCallback(async (page = 1, pageSize = 10, keyword = '') => {
     setLoading(true);
     try {
       const res = await getAdminUsers(page, pageSize, keyword);
-      if (res.status === 200) {
+      if (res.status === 200 && res.result) {
         setData(res.result.records || []);
         setPagination({
-          current: res.result.current,
-          pageSize: res.result.size,
-          total: res.result.total,
+          current: res.result.current || 1,
+          pageSize: res.result.size || 10,
+          total: res.result.total || 0,
         });
       }
     } catch (e) {
-      message.error('获取用户列表失败');
+      message.error(e.response?.data?.message || '获取用户列表失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [fetchUsers]);
 
   const handleSearch = (value) => {
     setSearchKeyword(value);
@@ -70,7 +67,7 @@ export default function UserManage() {
         fetchUsers(pagination.current, pagination.pageSize, searchKeyword);
       }
     } catch (e) {
-      message.error('状态更新失败');
+      message.error(e.response?.data?.message || '状态更新失败');
     }
   };
 
@@ -80,6 +77,7 @@ export default function UserManage() {
   };
 
   const handleRoleSave = async (id) => {
+    setSavingRoleId(id);
     try {
       const res = await updateUserRole(id, selectedRole);
       if (res.status === 200) {
@@ -88,7 +86,9 @@ export default function UserManage() {
         fetchUsers(pagination.current, pagination.pageSize, searchKeyword);
       }
     } catch (e) {
-      message.error('角色更新失败');
+      message.error(e.response?.data?.message || '角色更新失败');
+    } finally {
+      setSavingRoleId(null);
     }
   };
 
@@ -123,10 +123,11 @@ export default function UserManage() {
       const res = await deleteUser(id);
       if (res.status === 200) {
         message.success('删除用户成功');
-        fetchUsers(pagination.current, pagination.pageSize, searchKeyword);
+        const targetPage = data.length <= 1 && pagination.current > 1 ? pagination.current - 1 : pagination.current;
+        fetchUsers(targetPage, pagination.pageSize, searchKeyword);
       }
     } catch (e) {
-      message.error('删除用户失败');
+      message.error(e.response?.data?.message || '删除用户失败');
     }
   };
 
@@ -170,7 +171,7 @@ export default function UserManage() {
         if (editingRole === record.id) {
           return (
             <>
-              <Button type="link" size="small" onClick={() => handleRoleSave(record.id)}>保存</Button>
+              <Button type="link" size="small" loading={savingRoleId === record.id} onClick={() => handleRoleSave(record.id)}>保存</Button>
               <Button type="link" size="small" onClick={handleRoleCancel}>取消</Button>
             </>
           );

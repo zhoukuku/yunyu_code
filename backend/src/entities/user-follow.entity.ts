@@ -11,6 +11,8 @@ import { User } from './user.entity';
 
 @Entity('user_follows')
 @Index(['followerId', 'followingId'], { unique: true })
+@Index(['followingId'])
+@Index(['followerId'])
 export class UserFollow {
   @PrimaryGeneratedColumn()
   id: number;

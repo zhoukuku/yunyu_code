@@ -10,7 +10,13 @@ export class ActivityController {
   @UseGuards(AuthGuard('jwt'))
   async getFollowingActivities(@Request() req, @Query('page') page = '1', @Query('limit') limit = '20') {
     const userId = req.user.sub;
-    const result = await this.activityService.getFollowingActivities(userId, parseInt(page, 10), parseInt(limit, 10));
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const result = await this.activityService.getFollowingActivities(
+      userId,
+      isNaN(pageNum) || pageNum < 1 ? 1 : pageNum,
+      isNaN(limitNum) || limitNum < 1 ? 20 : limitNum,
+    );
     return {
       status: 200,
       result,
@@ -19,7 +25,12 @@ export class ActivityController {
 
   @Get('global')
   async getGlobalActivities(@Query('page') page = '1', @Query('limit') limit = '20') {
-    const result = await this.activityService.getGlobalActivities(parseInt(page, 10), parseInt(limit, 10));
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const result = await this.activityService.getGlobalActivities(
+      isNaN(pageNum) || pageNum < 1 ? 1 : pageNum,
+      isNaN(limitNum) || limitNum < 1 ? 20 : limitNum,
+    );
     return {
       status: 200,
       result,
@@ -28,7 +39,15 @@ export class ActivityController {
 
   @Get('user/:userId')
   async getUserActivities(@Param('userId') userId: string, @Query('page') page = '1', @Query('limit') limit = '20') {
-    const result = await this.activityService.getUserActivities(parseInt(userId, 10), parseInt(page, 10), parseInt(limit, 10));
+    const uid = parseInt(userId, 10);
+    if (isNaN(uid)) return { status: 400, message: 'Invalid userId' };
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const result = await this.activityService.getUserActivities(
+      uid,
+      isNaN(pageNum) || pageNum < 1 ? 1 : pageNum,
+      isNaN(limitNum) || limitNum < 1 ? 20 : limitNum,
+    );
     return {
       status: 200,
       result,

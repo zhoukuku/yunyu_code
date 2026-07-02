@@ -1,5 +1,4 @@
 const { DataSource } = require('typeorm');
-const bcrypt = require('bcrypt');
 
 const AppDataSource = new DataSource({
   type: 'sqlite',
@@ -8,10 +7,6 @@ const AppDataSource = new DataSource({
   synchronize: false,
   logging: false,
 });
-
-async function hashPassword(password) {
-  return bcrypt.hash(password, 10);
-}
 
 async function seed() {
   await AppDataSource.initialize();
@@ -53,8 +48,7 @@ async function seed() {
   // 2. Create 10 teacher accounts (batch insert)
   const teacherValues = [];
   for (let i = 1; i <= 10; i++) {
-    const hash = await hashPassword('password123');
-    teacherValues.push("('teacher" + i + "', 'teacher" + i + "@school.com', '" + hash + "', '教师" + i + "', 3, 3, 1, datetime('now'), datetime('now'))");
+    teacherValues.push("('teacher" + i + "', 'teacher" + i + "@school.com', 'Qima@2024', '教师" + i + "', 3, 3, 1, datetime('now'), datetime('now'))");
   }
   await AppDataSource.query(`
     INSERT INTO users (username, account, password, name, userType, role, status, createdAt, updatedAt)
@@ -64,8 +58,7 @@ async function seed() {
   // 3. Create 50 student accounts (batch insert)
   const studentValues = [];
   for (let i = 1; i <= 50; i++) {
-    const hash = await hashPassword('password123');
-    studentValues.push("('student" + i + "', 'student" + i + "@school.com', '" + hash + "', '学员" + i + "', 2, 2, 1, datetime('now'), datetime('now'))");
+    studentValues.push("('student" + i + "', 'student" + i + "@school.com', 'Qima@2024', '学员" + i + "', 2, 2, 1, datetime('now'), datetime('now'))");
   }
   await AppDataSource.query(`
     INSERT INTO users (username, account, password, name, userType, role, status, createdAt, updatedAt)

@@ -1,5 +1,4 @@
 const mysql = require('mysql2/promise');
-const bcrypt = require('bcrypt');
 
 async function seed() {
   const conn = await mysql.createConnection({
@@ -7,17 +6,16 @@ async function seed() {
   });
 
   console.log('🌱 开始填充初始数据...\n');
-  const SALT_ROUNDS = 10;
-  const hashedPassword = await bcrypt.hash('admin123', SALT_ROUNDS);
+  const DEFAULT_PASSWORD = 'Qima@2024';
 
   // 1. Admin user (role=1)
   const [existingAdmin] = await conn.query('SELECT id FROM users WHERE account = ?', ['admin']);
   if (existingAdmin.length === 0) {
     await conn.query(
       'INSERT INTO users (username, account, password, name, userType, role) VALUES (?, ?, ?, ?, ?, ?)',
-      ['admin', 'admin', hashedPassword, '管理员', 1, 1]
+      ['admin', 'admin', DEFAULT_PASSWORD, '管理员', 1, 1]
     );
-    console.log('✅ 管理员: admin / admin123 (角色:1)');
+    console.log('✅ 管理员: admin / Qima@2024 (角色:1)');
   } else {
     await conn.query('UPDATE users SET role = 1, userType = 1 WHERE account = ?', ['admin']);
     console.log('✅ 管理员已更新为角色1');
@@ -28,9 +26,9 @@ async function seed() {
   if (existingTeacher.length === 0) {
     await conn.query(
       'INSERT INTO users (username, account, password, name, userType, role) VALUES (?, ?, ?, ?, ?, ?)',
-      ['teacher', 'teacher', hashedPassword, '张老师', 2, 2]
+      ['teacher', 'teacher', DEFAULT_PASSWORD, '张老师', 2, 2]
     );
-    console.log('✅ 教师: teacher / admin123');
+    console.log('✅ 教师: teacher / Qima@2024');
   }
 
   // 3. Student
@@ -38,9 +36,9 @@ async function seed() {
   if (existingStudent.length === 0) {
     await conn.query(
       'INSERT INTO users (username, account, password, name, userType, role) VALUES (?, ?, ?, ?, ?, ?)',
-      ['student', 'student', hashedPassword, '小明', 3, 3]
+      ['student', 'student', DEFAULT_PASSWORD, '小明', 3, 3]
     );
-    console.log('✅ 学生: student / admin123');
+    console.log('✅ 学生: student / Qima@2024');
   }
 
   // 4. Hierarchy
@@ -169,9 +167,9 @@ async function seed() {
   await conn.end();
   console.log('\n🎉 数据填充完成！');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('  管理员: admin  / admin123');
-  console.log('  教师:   teacher / admin123');
-  console.log('  学生:   student / admin123');
+  console.log('  管理员: admin  / Qima@2024');
+  console.log('  教师:   teacher / Qima@2024');
+  console.log('  学生:   student / Qima@2024');
   console.log('  课程:   3门 (共26节课)');
   console.log('  班级:   1个');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━');

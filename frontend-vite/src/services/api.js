@@ -1,11 +1,18 @@
 import axios from 'axios';
+import { safeGetItem, safeRemoveItem } from '../utils/storage';
 
 // 检测是否在 Electron 环境中
-const isElectron = typeof window !== 'undefined' && window.location.protocol === 'file:';
+// Prefer checking for the preload-injected electronAPI bridge, which is the most
+// reliable signal that we are running inside Electron with IPC available.
+const isElectron = typeof window !== 'undefined' && Boolean(window.electronAPI);
 // Electron 或生产模式下使用完整 URL
 const API_BASE_URL = (isElectron || import.meta.env.PROD)
   ? 'http://localhost:3000/api'  // Electron 或生产模式
   : '/api';  // 开发模式
+
+// 重试配置
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1000;
 
 export const request = axios.create({
   baseURL: API_BASE_URL,
@@ -13,31 +20,81 @@ export const request = axios.create({
 });
 
 request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
-  if (token) config.headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+  try {
+    const token = safeGetItem('accessToken');
+    if (token) {
+      config.headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    }
+  } catch (e) {
+    // Swallow — proceed without auth header on storage error
+  }
   return config;
 });
 
 request.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    // Normalize response shape: the backend wraps in { status, result, msg }
+    // but if it does not, default to the raw data with status 200
+    const data = response.data;
+    if (data && typeof data === 'object' && 'status' in data) {
+      return data;
+    }
+    // Fallback: wrap raw data so callers can rely on res.result
+    return { status: response.status, result: data };
+  },
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      try {
+        safeRemoveItem('accessToken');
+        safeRemoveItem('user');
+      } catch (e) {
+        // Swallow — redirect is more important
+      }
+      // Don't redirect if already on the login page — let the login page
+      // show the error message (e.g. wrong password) instead of reloading.
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
+  }
+);
+
+// 网络错误重试拦截器（仅重试无响应的网络错误，不重试 HTTP 4xx/5xx）
+request.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const { config, response } = error;
+
+    // 仅对有 config 且没有收到服务器响应的错误（网络错误/超时）进行重试
+    if (!config || response) {
+      return Promise.reject(error);
+    }
+
+    config.__retryCount = config.__retryCount || 0;
+
+    if (config.__retryCount >= MAX_RETRIES) {
+      return Promise.reject(error);
+    }
+
+    config.__retryCount += 1;
+
+    // 指数退避延迟
+    const delay = RETRY_DELAY_MS * Math.pow(2, config.__retryCount - 1);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+
+    return request(config);
   }
 );
 
 // 认证
 export const login = (account, password) => request.post('/account/login', { account, password });
 export const getUserDetail = () => request.get('/user/detail');
+export const getUserByUsername = (username) => request.get(`/users/username/${username}`);
 
 // 课程相关
 export const getHierarchy = () => request.get('/dict/hierarchy');
 export const getCourses = (hierarchyId, filters) => request.get('/courses', { params: { hierarchyId, ...filters } });
-export const getCourse = (id) => request.get(`/courses/${id}`);
 export const getLessons = (courseId) => request.get(`/courses/${courseId}/lessons`);
 export const getCourseDetail = (id) => request.get(`/courses/${id}`);
 export const enrollCourse = (courseId) => request.post(`/user/course/enroll/${courseId}`);
@@ -55,12 +112,12 @@ export const getMyClasses = () => request.get('/student/class/my');
 export const checkClassMembership = (classId) => request.get(`/student/class/check/${classId}`);
 
 // 通知
-export const getNotices = (userId) => request.get('/notice', { params: { userId } });
-export const getNoticePopup = (userId) => request.get('/notice/popup', { params: { userId } });
+export const getNotices = () => request.get('/notice');
+export const getNoticePopup = () => request.get('/notice/popup');
 export const markNoticeAsRead = (id) => request.put(`/notice/${id}/read`);
-export const markAllNoticesAsRead = (userId) => request.put('/notice/read-all', { userId });
+export const markAllNoticesAsRead = () => request.put('/notice/read-all');
 export const deleteNotice = (id) => request.delete(`/notice/${id}`);
-export const getUnreadNoticeCount = (userId) => request.get('/notice/unread-count', { params: { userId } });
+export const getUnreadNoticeCount = (options = {}) => request.get('/notice/unread-count', options);
 
 // 课时相关
 export const getLessonDetail = (lessonId) => request.get(`/lessons/${lessonId}`);
@@ -89,7 +146,7 @@ export const getProject = (id) => request.get(`/projects/${id}`);
 export const updateProject = (id, data) => request.put(`/projects/${id}`, data);
 export const deleteProject = (id) => request.delete(`/projects/${id}`);
 export const updateProjectData = (id, projectData) => request.put(`/projects/${id}`, { projectData });
-export const remixProject = (id, userId, newName) => request.post(`/projects/${id}/remix`, { userId, newName });
+export const remixProject = (id, newName) => request.post(`/projects/${id}/remix`, { newName });
 
 // 云变量相关
 export const getCloudVariables = (projectId) => request.get(`/projects/${projectId}/cloud-variables`);
@@ -104,18 +161,18 @@ export const deleteCommunityPost = (id) => request.delete(`/community/posts/${id
 export const getPostComments = (postId) => request.get(`/community/comments/post/${postId}`);
 export const createComment = (data) => request.post('/community/comments', data);
 export const deleteComment = (id) => request.delete(`/community/comments/${id}`);
-export const toggleLike = (postId, userId) => request.post('/community/likes', { postId, userId });
+export const toggleLike = (postId) => request.post('/community/likes', { postId });
 export const getUserLikedPosts = (userId) => request.get(`/community/likes/user/${userId}`);
-export const checkUserLiked = (postId, userId) => request.get('/community/likes/check', { params: { postId, userId } });
+export const checkUserLiked = (postId) => request.get('/community/likes/check', { params: { postId } });
 
 // 社区相关 - 带筛选
 export const getCommunityPostsFiltered = (scope, filters) => request.get('/community/posts', { params: { scope, ...filters } });
 
 // 全局搜索
 export const globalSearch = (keyword, userId) => request.get('/search', { params: { keyword, userId } });
-export const saveSearchHistory = (userId, keyword) => request.post('/search/history', { userId, keyword });
-export const getSearchHistory = (userId, limit) => request.get('/search/history', { params: { userId, limit } });
-export const clearSearchHistory = (userId) => request.delete('/search/history', { params: { userId } });
+export const saveSearchHistory = (keyword) => request.post('/search/history', { keyword });
+export const getSearchHistory = (limit) => request.get('/search/history', { params: { limit } });
+export const clearSearchHistory = () => request.delete('/search/history');
 
 // 收藏相关
 export const getFavorites = () => request.get('/favorites');
@@ -166,7 +223,7 @@ export const updateNotice = (id, data) => request.put(`/notice/${id}`, data);
 export const getFeaturedContents = (category) => request.get('/featured', { params: { category } });
 export const getFeaturedCategories = () => request.get('/featured/categories');
 export const getCoursesByCategory = (category) => request.get(`/featured/category/${category}`);
-export const getFeaturedCourses = () => request.get('/featured/courses');
+export const getAllExploreCourses = () => request.get('/featured/courses');
 
 // 课程评价相关
 export const getCourseReviews = (courseId, page = 1, pageSize = 10) =>
@@ -286,7 +343,7 @@ export const getStudentReports = (studentId, limit) =>
 
 // 代码执行相关
 export const createCodeExecution = (data) => request.post('/code-execution', data);
-export const getCodeExecutions = (filters) => request.get('/code-execution', { params: filters });
+export const getCodeExecutions = (filters) => request.get('/code-execution', { params: { ...filters } });
 export const getCodeExecution = (id) => request.get(`/code-execution/${id}`);
 export const executeCode = (id) => request.post(`/code-execution/${id}/execute`);
 export const updateCodeExecution = (id, data) => request.put(`/code-execution/${id}`, data);

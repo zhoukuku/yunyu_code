@@ -42,7 +42,7 @@ export function PageLoadingWrapper({ isLoading, children, tip = '页面加载中
 /**
  * 骨架屏加载效果
  */
-export function SkeletonLoader({ rows = 3, active = true }) {
+export function SkeletonLoader({ rows = 3 }) {
   return (
     <div className="skeleton-loader">
       {Array.from({ length: rows }).map((_, index) => (

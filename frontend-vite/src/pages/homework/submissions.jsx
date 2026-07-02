@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Tag, Button, Card, Space, Modal, Form, InputNumber, Input, message, Statistic, Row, Col } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getHomework, getHomeworkSubmissions, gradeSubmission } from '../../services/api';
@@ -17,11 +17,7 @@ export default function HomeworkSubmissionsPage() {
   const [currentSubmission, setCurrentSubmission] = useState(null);
   const [form] = Form.useForm();
 
-  useEffect(() => {
-    fetchData();
-  }, [id]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [hwRes, subRes] = await Promise.all([
@@ -51,7 +47,11 @@ export default function HomeworkSubmissionsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleGrade = (submission) => {
     setCurrentSubmission(submission);
@@ -232,7 +232,7 @@ export default function HomeworkSubmissionsPage() {
             label="成绩"
             rules={[{ required: true, message: '请输入成绩' }]}
           >
-            <InputNumber min={0} max={homework?.totalScore || 100} style={{ width: '100%' }} />
+            <InputNumber min={0} max={homework?.totalScore ?? 100} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="feedback" label="反馈">
             <TextArea rows={4} placeholder="请输入教师反馈" />

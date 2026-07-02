@@ -1,7 +1,65 @@
 import { useState, useEffect, useRef } from 'react';
-import { Card, Carousel, Button, Space, Spin, message, InputNumber } from 'antd';
+import { Card, Carousel, Button, Space, Spin, InputNumber } from 'antd';
 import { LeftOutlined, RightOutlined, ExpandOutlined, CompressOutlined } from '@ant-design/icons';
 import './PptViewer.less';
+
+// Reject dangerous URL protocols that should never be loaded
+const isSafeUrl = (url) => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    // If URL parsing fails, treat as unsafe
+    return false;
+  }
+};
+
+// 判断是否为图片URL模式
+const isImageMode = (url) => {
+  if (!url) return false;
+  return url.match(/\.(jpg|jpeg|png|gif|webp)$/i) !== null ||
+         url.includes('/slides/') ||
+         url.includes('/pages/') ||
+         url.includes('/ppt/') ||
+         url.includes('[page]') ||
+         url.includes('{page}') ||
+         url.match(/page\d+/i);
+};
+
+// 生成PPT页面图片URL数组
+const generatePageUrls = (baseUrl, pageCount = 10) => {
+  const urls = [];
+  for (let i = 1; i <= pageCount; i++) {
+    let url = baseUrl;
+    // 替换常见占位符模式
+    url = url.replace(/\[page\]/gi, String(i));
+    url = url.replace(/\{page\}/gi, String(i));
+    url = url.replace(/page(\d+)/gi, (match, p1) => {
+      const num = parseInt(p1, 10);
+      const padLen = p1.length;
+      return String(num + i - 1).padStart(padLen, '0');
+    });
+    // 替换URL末尾的数字页码
+    url = url.replace(/(\d+)(\.[^.]+$)/, (match, num, ext) => {
+      return String(i).padStart(num.length, '0') + ext;
+    });
+    urls.push(url);
+  }
+  return urls;
+};
+
+// 检测PPT页面总数
+const detectPageCount = (url) => {
+  if (url.includes('[page]') || url.includes('{page}')) {
+    return 10;
+  }
+  const pageMatch = url.match(/page(\d+)/i);
+  if (pageMatch) {
+    return 10; // 假设有10页
+  }
+  return 1;
+};
 
 /**
  * PPT查看器组件
@@ -13,36 +71,24 @@ export default function PptViewer({ pptUrl, lessonName }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [imageMode, setImageMode] = useState(false);
+  const [imageErrors, setImageErrors] = useState({});
   const carouselRef = useRef(null);
-
-  // 判断是否为在线PPT链接（Office Online、Google Slides等）
-  const isOnlinePpt = (url) => {
-    if (!url) return false;
-    return url.includes('office.com') ||
-           url.includes('google.com') ||
-           url.includes('slideshare.net') ||
-           url.includes('canva.com') ||
-           url.includes('officeapps.live.com');
-  };
-
-  // 判断是否为图片URL模式
-  const isImageMode = (url) => {
-    if (!url) return false;
-    return url.match(/\.(jpg|jpeg|png|gif|webp)$/i) !== null ||
-           url.includes('/slides/') ||
-           url.includes('/pages/') ||
-           url.includes('/ppt/') ||
-           url.includes('[page]') ||
-           url.includes('{page}') ||
-           url.match(/page\d+/i);
-  };
 
   // 初始化模式检测
   useEffect(() => {
-    if (pptUrl) {
-      setImageMode(isImageMode(pptUrl));
+    setImageErrors({});
+    if (pptUrl && isSafeUrl(pptUrl)) {
+      const imgMode = isImageMode(pptUrl);
+      setImageMode(imgMode);
+      if (imgMode) {
+        setTotalPages(detectPageCount(pptUrl));
+        setLoading(true);
+      }
+    } else if (pptUrl) {
+      // Unsafe URL protocol — treat as no valid URL
+      setImageMode(false);
     }
   }, [pptUrl]);
 
@@ -70,40 +116,6 @@ export default function PptViewer({ pptUrl, lessonName }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [imageMode, isFullscreen, currentPage, totalPages]);
-
-  // 生成PPT页面图片URL数组
-  const generatePageUrls = (baseUrl, pageCount = 10) => {
-    const urls = [];
-    for (let i = 1; i <= pageCount; i++) {
-      let url = baseUrl;
-      // 替换常见占位符模式
-      url = url.replace(/\[page\]/gi, i);
-      url = url.replace(/\{page\}/gi, i);
-      url = url.replace(/page(\d+)/gi, (match, p1) => {
-        const num = parseInt(p1, 10);
-        const padLen = p1.length;
-        return String(num + i - 1).padStart(padLen, '0');
-      });
-      // 替换URL末尾的数字页码
-      url = url.replace(/(\d+)(\.[^.]+$)/, (match, num, ext) => {
-        return String(i).padStart(num.length, '0') + ext;
-      });
-      urls.push(url);
-    }
-    return urls;
-  };
-
-  // 检测PPT页面总数
-  const detectPageCount = (url) => {
-    if (url.includes('[page]') || url.includes('{page}')) {
-      return 10;
-    }
-    const pageMatch = url.match(/page(\d+)/i);
-    if (pageMatch) {
-      return 10; // 假设有10页
-    }
-    return 1;
-  };
 
   // 翻页函数
   const goToNext = () => {
@@ -143,7 +155,8 @@ export default function PptViewer({ pptUrl, lessonName }) {
     }
   };
 
-  if (!pptUrl) {
+  // Guard: no URL or unsafe protocol — render placeholder
+  if (!pptUrl || !isSafeUrl(pptUrl)) {
     return (
       <Card>
         <div className="ppt-placeholder">
@@ -162,8 +175,8 @@ export default function PptViewer({ pptUrl, lessonName }) {
     );
   }
 
-  // iframe嵌入模式（在线PPT）
-  if (isOnlinePpt(pptUrl)) {
+  // iframe嵌入模式 — fallback for any non-image URL (online PPT, documents, etc.)
+  if (!imageMode) {
     return (
       <div className={`ppt-card-container ${isFullscreen ? 'fullscreen' : ''}`}>
         <Card
@@ -183,6 +196,8 @@ export default function PptViewer({ pptUrl, lessonName }) {
               title="PPT课件"
               frameBorder="0"
               allowFullScreen
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+              referrerPolicy="strict-origin-when-cross-origin"
               className="ppt-iframe"
             />
           </div>
@@ -234,19 +249,22 @@ export default function PptViewer({ pptUrl, lessonName }) {
           {pageUrls.map((url, index) => (
             <div key={index} className="ppt-slide">
               <Spin spinning={loading && index === 0}>
-                <div className="ppt-image-wrapper">
+                <div className={`ppt-image-wrapper${imageErrors[index] ? ' error' : ''}`}>
                   <img
                     src={url}
                     alt={`PPT第${index + 1}页`}
+                    style={imageErrors[index] ? { display: 'none' } : undefined}
                     onLoad={() => {
                       if (index === 0) {
                         setLoading(false);
                         setTotalPages(pageCount);
                       }
                     }}
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      e.target.parentElement.classList.add('error');
+                    onError={() => {
+                      setImageErrors(prev => ({ ...prev, [index]: true }));
+                      if (index === 0) {
+                        setLoading(false);
+                      }
                     }}
                   />
                 </div>

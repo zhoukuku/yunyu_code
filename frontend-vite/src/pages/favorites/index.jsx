@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Row, Col, Button, message, Popconfirm } from 'antd';
 import { HeartOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -9,11 +9,7 @@ export default function FavoritesPage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchFavorites();
-  }, []);
-
-  const fetchFavorites = async () => {
+  const fetchFavorites = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getFavorites();
@@ -25,10 +21,13 @@ export default function FavoritesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleRemoveFavorite = async (projectId, e) => {
-    e.stopPropagation();
+  useEffect(() => {
+    fetchFavorites();
+  }, [fetchFavorites]);
+
+  const handleRemoveFavorite = async (projectId) => {
     try {
       await removeFavorite(projectId);
       message.success('已取消收藏');
@@ -40,7 +39,7 @@ export default function FavoritesPage() {
   };
 
   const handleCardClick = (favorite) => {
-    if (favorite.project) {
+    if (favorite.project?.type) {
       navigate(`/ide/${favorite.project.type}`, { state: { projectId: favorite.projectId } });
     }
   };
@@ -74,8 +73,8 @@ export default function FavoritesPage() {
                     <Button type="text" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); if (f.project) navigate(`/create/${f.project.type}`, { state: { projectId: f.projectId } }); }}>编辑</Button>,
                     <Popconfirm
                       title="确定要取消收藏吗？"
-                      onConfirm={(e) => handleRemoveFavorite(f.projectId, e)}
-                      onCancel={(e) => e.stopPropagation()}
+                      onConfirm={() => handleRemoveFavorite(f.projectId)}
+                      onCancel={(e) => e?.stopPropagation?.()}
                       okText="确定"
                       cancelText="取消"
                     >
@@ -88,7 +87,7 @@ export default function FavoritesPage() {
                     title={f.project?.name || '未命名作品'}
                     description={
                       <div>
-                        <span>作者: {f.project?.userId || '未知'}</span>
+                        <span>作者: {f.project?.userId ?? '未知'}</span>
                         <br />
                         <span>收藏时间: {new Date(f.createdAt).toLocaleDateString()}</span>
                       </div>

@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Message } from '../entities/message.entity';
 import { User } from '../entities/user.entity';
 
@@ -41,16 +41,33 @@ export class MessagesService {
 
   async getConversation(userId1: number, userId2: number, page = 1, limit = 50) {
     const skip = (page - 1) * limit;
-    const [messages, total] = await this.messagesRepository.findAndCount({
-      where: [
-        { senderId: userId1, receiverId: userId2 },
-        { senderId: userId2, receiverId: userId1 },
-      ],
-      relations: ['sender', 'receiver'],
-      order: { createdAt: 'DESC' },
-      skip,
-      take: limit,
-    });
+    const [messages, total] = await this.messagesRepository
+      .createQueryBuilder('message')
+      .leftJoin('message.sender', 'sender')
+      .leftJoin('message.receiver', 'receiver')
+      .select([
+        'message.id',
+        'message.senderId',
+        'message.receiverId',
+        'message.content',
+        'message.isRead',
+        'message.createdAt',
+      ])
+      .addSelect('sender.id', 'sender_id')
+      .addSelect('sender.username', 'sender_username')
+      .addSelect('sender.name', 'sender_name')
+      .addSelect('sender.nickname', 'sender_nickname')
+      .addSelect('sender.avatar', 'sender_avatar')
+      .addSelect('receiver.id', 'receiver_id')
+      .addSelect('receiver.username', 'receiver_username')
+      .addSelect('receiver.name', 'receiver_name')
+      .addSelect('receiver.nickname', 'receiver_nickname')
+      .addSelect('receiver.avatar', 'receiver_avatar')
+      .where('(message.senderId = :userId1 AND message.receiverId = :userId2) OR (message.senderId = :userId2 AND message.receiverId = :userId1)', { userId1, userId2 })
+      .orderBy('message.createdAt', 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
 
     // Mark messages as read where userId1 is the receiver
     await this.messagesRepository.update(
@@ -67,47 +84,70 @@ export class MessagesService {
   }
 
   async getConversationsList(userId: number) {
-    // Get all messages involving this user, ordered by most recent
-    const messages = await this.messagesRepository.find({
-      where: [{ senderId: userId }, { receiverId: userId }],
-      relations: ['sender', 'receiver'],
-      order: { createdAt: 'DESC' },
+    // 使用子查询获取每个会话的最新消息和未读计数（避免 N+1 查询）
+    const conversations = await this.messagesRepository
+      .createQueryBuilder('m')
+      .select('CASE WHEN m.senderId = :userId THEN m.receiverId ELSE m.senderId END', 'partnerId')
+      .addSelect('MAX(m.createdAt)', 'lastMessageTime')
+      .addSelect('SUM(CASE WHEN m.receiverId = :userId AND m.isRead = 0 THEN 1 ELSE 0 END)', 'unreadCount')
+      .where('m.senderId = :userId OR m.receiverId = :userId', { userId })
+      .groupBy('partnerId')
+      .orderBy('lastMessageTime', 'DESC')
+      .getRawMany();
+
+    if (conversations.length === 0) {
+      return [];
+    }
+
+    // 批量获取对方用户信息和最后一条消息（避免 N+1 查询）
+    const partnerIds = conversations.map(c => c.partnerId);
+    if (partnerIds.length === 0) return [];
+    const partners = await this.usersRepository.findBy({ id: In(partnerIds) });
+    const partnerMap = new Map(partners.map(p => [p.id, p]));
+
+    // 使用子查询获取每个会话的最新消息内容
+    const latestMessages = await this.messagesRepository
+      .createQueryBuilder('m')
+      .where('(m.senderId = :userId AND m.receiverId IN (:...partnerIds)) OR (m.receiverId = :userId AND m.senderId IN (:...partnerIds))', {
+        userId,
+        partnerIds,
+      })
+      .andWhere(qb => {
+        const subQuery = qb.subQuery()
+          .select('MAX(m2.createdAt)')
+          .from('messages', 'm2')
+          .where('(m2.senderId = m.senderId AND m2.receiverId = m.receiverId) OR (m2.senderId = m.receiverId AND m2.receiverId = m.senderId)')
+          .getQuery();
+        return `m.createdAt = ${subQuery}`;
+      })
+      .getMany();
+
+    const latestMsgMap = new Map<number, any>();
+    for (const msg of latestMessages) {
+      const partnerId = msg.senderId === userId ? msg.receiverId : msg.senderId;
+      if (!latestMsgMap.has(partnerId)) {
+        latestMsgMap.set(partnerId, msg);
+      }
+    }
+
+    const result = conversations.map(conv => {
+      const partnerId = conv.partnerId;
+      const partner = partnerMap.get(partnerId);
+      const lastMsg = latestMsgMap.get(partnerId);
+
+      return {
+        partnerId,
+        partnerUsername: partner?.username || '未知用户',
+        partnerName: partner?.name || '',
+        partnerAvatar: partner?.avatar || '',
+        partnerNickname: partner?.nickname || '',
+        lastMessage: lastMsg?.content || '',
+        lastMessageTime: lastMsg?.createdAt || conv.lastMessageTime,
+        unreadCount: parseInt(conv.unreadCount, 10) || 0,
+      };
     });
 
-    // Group by conversation partner
-    const conversationsMap = new Map<number, any>();
-
-    for (const msg of messages) {
-      const partnerId = msg.senderId === userId ? msg.receiverId : msg.senderId;
-      if (!conversationsMap.has(partnerId)) {
-        const partner = msg.senderId === userId ? msg.receiver : msg.sender;
-        conversationsMap.set(partnerId, {
-          partnerId,
-          partnerUsername: partner.username,
-          partnerName: partner.name,
-          partnerAvatar: partner.avatar,
-          partnerNickname: partner.nickname,
-          lastMessage: msg.content,
-          lastMessageTime: msg.createdAt,
-          unreadCount: 0,
-        });
-      }
-      // Count unread messages
-      if (msg.receiverId === userId && msg.isRead === 0) {
-        const conv = conversationsMap.get(partnerId);
-        conv.unreadCount++;
-      }
-    }
-
-    // Get unread counts for each conversation
-    for (const [partnerId, conv] of conversationsMap) {
-      const unreadCount = await this.messagesRepository.count({
-        where: { receiverId: userId, senderId: partnerId, isRead: 0 },
-      });
-      conv.unreadCount = unreadCount;
-    }
-
-    return Array.from(conversationsMap.values()).sort(
+    return result.sort(
       (a, b) => new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime()
     );
   }

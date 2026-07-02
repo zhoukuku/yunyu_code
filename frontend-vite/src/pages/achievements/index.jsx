@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Card, Row, Col, Progress, Tag, Empty, Spin, Tabs, Button } from 'antd';
+import { useEffect, useState, useCallback } from 'react';
+import { Card, Row, Col, Progress, Tag, Empty, Tabs, message, Skeleton } from 'antd';
 import {
   TrophyOutlined,
   BookOutlined,
@@ -14,6 +14,7 @@ import {
   UnlockOutlined,
   LockOutlined,
 } from '@ant-design/icons';
+import { getAchievements, getAchievementStats } from '../../services/api';
 
 const iconMap = {
   trophy: <TrophyOutlined />,
@@ -47,30 +48,27 @@ export default function AchievementsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all');
 
-  const fetchAchievements = async () => {
+  const fetchAchievements = useCallback(async () => {
     setLoading(true);
     try {
       const [achievementsRes, statsRes] = await Promise.all([
-        fetch('/api/achievements', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-        }).then(r => r.json()),
-        fetch('/api/achievements/stats', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
-        }).then(r => r.json()),
+        getAchievements(),
+        getAchievementStats(),
       ]);
 
       setAchievements(achievementsRes?.result || []);
       setStats(statsRes?.result || { total: 0, unlocked: 0, locked: 0 });
     } catch (error) {
       console.error('Failed to fetch achievements:', error);
+      message.error('加载成就失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAchievements();
-  }, []);
+  }, [fetchAchievements]);
 
   const filteredAchievements = achievements.filter(a => {
     if (activeTab === 'all') return true;
@@ -85,8 +83,45 @@ export default function AchievementsPage() {
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: 80 }}>
-        <Spin size="large" />
+      <div style={{ padding: 24 }}>
+        <Card
+          title="成就徽章"
+          extra={
+            <div style={{ textAlign: 'right' }}>
+              <Skeleton.Input active size="small" style={{ width: 80 }} />
+              <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>已解锁徽章</div>
+            </div>
+          }
+        >
+          <Skeleton.Input active block style={{ marginBottom: 24, height: 8 }} />
+
+          <Tabs
+            activeKey="all"
+            items={[
+              { key: 'all', label: '全部', disabled: true },
+              { key: 'unlocked', label: '已解锁', disabled: true },
+              { key: 'locked', label: '未解锁', disabled: true },
+            ]}
+          />
+
+          <Row gutter={[16, 16]}>
+            {[1, 2, 3, 4].map((i) => (
+              <Col xs={24} sm={12} md={8} lg={6} key={i}>
+                <Card style={{ textAlign: 'center', background: '#fafafa', border: '1px solid #d9d9d9' }}>
+                  <Skeleton.Avatar
+                    active
+                    size={48}
+                    shape="circle"
+                    style={{ display: 'block', margin: '0 auto 16px auto' }}
+                  />
+                  <Skeleton.Input active size="small" style={{ display: 'block', margin: '0 auto 8px auto', width: 80 }} />
+                  <Skeleton.Input active size="small" style={{ display: 'block', margin: '0 auto 16px auto', width: '90%' }} />
+                  <Skeleton active paragraph={{ rows: 1 }} title={false} />
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </Card>
       </div>
     );
   }
@@ -94,13 +129,13 @@ export default function AchievementsPage() {
   return (
     <div style={{ padding: 24 }}>
       <Card
-        title="Achievement Badges"
+        title="成就徽章"
         extra={
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>
               {unlockedCount} / {totalCount}
             </div>
-            <div style={{ fontSize: 12, color: '#8c8c8c' }}>Badges Unlocked</div>
+            <div style={{ fontSize: 12, color: '#8c8c8c' }}>已解锁徽章</div>
           </div>
         }
       >
@@ -108,24 +143,25 @@ export default function AchievementsPage() {
           percent={progressPercent}
           status="active"
           strokeColor={{ '0%': '#108ee9', '100%': '#87d068' }}
-          format={(percent) => `${percent}% Complete`}
+          format={(percent) => `${percent}% 完成`}
           style={{ marginBottom: 24 }}
         />
 
-        <Tabs activeKey={activeTab} onChange={setActiveTab}>
-          <Tabs.TabPane tab={`All (${totalCount})`} key="all" />
-          <Tabs.TabPane tab={`Unlocked (${unlockedCount})`} key="unlocked" />
-          <Tabs.TabPane tab={`Locked (${totalCount - unlockedCount})`} key="locked" />
-        </Tabs>
+        <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+          { key: 'all', label: `全部 (${totalCount})` },
+          { key: 'unlocked', label: `已解锁 (${unlockedCount})` },
+          { key: 'locked', label: `未解锁 (${totalCount - unlockedCount})` },
+        ]} />
 
         {filteredAchievements.length === 0 ? (
-          <Empty description="No achievements in this category" style={{ padding: 40 }} />
+          <Empty description="此分类暂无成就" style={{ padding: 40 }} />
         ) : (
           <Row gutter={[16, 16]}>
             {filteredAchievements.map((achievement) => {
               const icon = iconMap[achievement.icon] || <StarOutlined />;
               const color = achievement.unlocked ? colorMap[achievement.icon] || '#1890ff' : '#d9d9d9';
-              const progress = Math.min((achievement.progress / achievement.target) * 100, 100);
+              const target = achievement.target || 1;
+              const progress = Math.min((achievement.progress / target) * 100, 100);
 
               return (
                 <Col xs={24} sm={12} md={8} lg={6} key={achievement.id}>
@@ -138,7 +174,7 @@ export default function AchievementsPage() {
                         : '#fafafa',
                       border: achievement.unlocked ? `2px solid ${color}` : '1px solid #d9d9d9',
                     }}
-                    bodyStyle={{ padding: 24 }}
+                    styles={{ body: { padding: 24 } }}
                   >
                     <div
                       style={{
@@ -187,13 +223,13 @@ export default function AchievementsPage() {
                           )}
                         />
                         <div style={{ marginTop: 8, fontSize: 11, color: '#8c8c8c' }}>
-                          <LockOutlined /> Locked
+                          <LockOutlined /> 未解锁
                         </div>
                       </div>
                     ) : (
                       <div>
                         <Tag color={color} icon={<UnlockOutlined />} style={{ marginBottom: 8 }}>
-                          Unlocked
+                          已解锁
                         </Tag>
                         {achievement.unlockedAt && (
                           <div style={{ fontSize: 11, color: '#8c8c8c' }}>

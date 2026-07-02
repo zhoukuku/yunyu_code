@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Activity, ActivityType } from '../entities/activity.entity';
@@ -29,12 +29,15 @@ export class ActivityService {
 
   async recordPost(userId: number, postId: number): Promise<Activity> {
     const post = await this.postRepository.findOne({ where: { id: postId } });
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
     return this.createActivity({
       type: ActivityType.POST,
       userId,
       targetId: postId,
-      content: post?.title || 'Shared a new work',
-      extra: post?.thumbnail || undefined,
+      content: post.title || 'Shared a new work',
+      extra: post.thumbnail || undefined,
     });
   }
 

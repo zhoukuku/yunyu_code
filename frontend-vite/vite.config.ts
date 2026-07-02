@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       emptyOutDir: true,
       rollupOptions: {
+        external: ['socket.io-client'],
         output: {
           manualChunks: {
             'react-vendor': ['react', 'react-dom'],

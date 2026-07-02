@@ -4,10 +4,33 @@ import { PlayCircleOutlined, StopOutlined, SaveOutlined, ArrowLeftOutlined } fro
 import { history } from '@umijs/max';
 import './index.less';
 
+// Minimal Blockly type declarations for CDN-loaded library
+interface BlocklyWorkspace {
+  dispose(): void;
+}
+interface BlocklyXml {
+  workspaceToDom(workspace: BlocklyWorkspace): Element;
+  domToText(dom: Element): string;
+}
+interface BlocklyAPI {
+  inject(containerId: string, options: Record<string, unknown>): BlocklyWorkspace;
+  Xml: BlocklyXml;
+}
+declare global {
+  interface Window {
+    Blockly?: BlocklyAPI;
+  }
+}
+
+// Safe localStorage helper
+function safeSetItem(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch (e) { /* Swallow */ }
+}
+
 const { TabPane } = Tabs;
 
 export default function IDEPage() {
-  const workspaceRef = useRef<any>(null);
+  const workspaceRef = useRef<BlocklyWorkspace | null>(null);
   const [projectName, setProjectName] = useState('未命名项目');
   const [isRunning, setIsRunning] = useState(false);
 
@@ -36,9 +59,9 @@ export default function IDEPage() {
   };
 
   const initWorkspace = () => {
-    if ((window as any).Blockly) {
+    if (window.Blockly) {
       const toolbox = getToolbox();
-      const workspace = (window as any).Blockly.inject('blocks-editor', {
+      const workspace = window.Blockly.inject('blocks-editor', {
         toolbox: toolbox,
         grid: { spacing: 20, length: 3, colour: '#ddd', snap: true },
         trashcan: true,
@@ -82,9 +105,9 @@ export default function IDEPage() {
   const handleStop = () => { setIsRunning(false); message.info('已停止'); };
   const handleSave = () => {
     if (workspaceRef.current) {
-      const xml = (window as any).Blockly.Xml.workspaceToDom(workspaceRef.current);
-      const xmlText = (window as any).Blockly.Xml.domToText(xml);
-      localStorage.setItem('scratch-project', xmlText);
+      const xml = window.Blockly.Xml.workspaceToDom(workspaceRef.current);
+      const xmlText = window.Blockly.Xml.domToText(xml);
+      safeSetItem('scratch-project', xmlText);
       message.success('项目已保存');
     }
   };

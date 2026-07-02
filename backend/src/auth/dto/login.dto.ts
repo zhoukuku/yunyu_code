@@ -1,12 +1,13 @@
-import { IsString, IsNotEmpty, MinLength } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class LoginDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsString({ message: '账号格式不正确' })
+  @IsNotEmpty({ message: '账号不能为空' })
+  @Transform(({ value }) => value?.trim())
   account: string;
 
-  @IsString()
+  @IsString({ message: '密码格式不正确' })
   @IsNotEmpty({ message: '密码不能为空' })
-  @MinLength(6, { message: '密码至少6个字符' })
   password: string;
 }

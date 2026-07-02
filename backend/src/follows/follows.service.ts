@@ -48,14 +48,16 @@ export class FollowsService {
     return { message: '取消关注成功' };
   }
 
-  async getFollowers(userId: number) {
-    const follows = await this.followsRepository.find({
+  async getFollowers(userId: number, page: number = 1, pageSize: number = 20) {
+    const [follows, total] = await this.followsRepository.findAndCount({
       where: { followingId: userId },
       relations: ['follower'],
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
 
-    return follows.map((f) => ({
+    const records = follows.map((f) => ({
       id: f.follower.id,
       username: f.follower.username,
       name: f.follower.name,
@@ -63,16 +65,26 @@ export class FollowsService {
       nickname: f.follower.nickname,
       followedAt: f.createdAt,
     }));
+
+    return {
+      records,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
+    };
   }
 
-  async getFollowing(userId: number) {
-    const follows = await this.followsRepository.find({
+  async getFollowing(userId: number, page: number = 1, pageSize: number = 20) {
+    const [follows, total] = await this.followsRepository.findAndCount({
       where: { followerId: userId },
       relations: ['following'],
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
 
-    return follows.map((f) => ({
+    const records = follows.map((f) => ({
       id: f.following.id,
       username: f.following.username,
       name: f.following.name,
@@ -80,6 +92,14 @@ export class FollowsService {
       nickname: f.following.nickname,
       followedAt: f.createdAt,
     }));
+
+    return {
+      records,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
+    };
   }
 
   async getFollowStats(userId: number) {

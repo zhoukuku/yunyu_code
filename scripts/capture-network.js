@@ -92,7 +92,7 @@ async function captureNetwork() {
       try {
         await item.click();
         await sleep(1000);
-      } catch (e) {}
+      } catch (e) { console.error('Failed to click navigation item:', e.message); }
     }
 
     await page.waitForLoadState('networkidle');
@@ -113,7 +113,7 @@ async function captureNetwork() {
 
         if (!byHost[host]) byHost[host] = [];
         byHost[host].push({ ...req, pathname });
-      } catch (e) {}
+      } catch (e) { console.error('Failed to parse request URL:', req.url, e.message); }
     }
 
     for (const [host, requests] of Object.entries(byHost)) {

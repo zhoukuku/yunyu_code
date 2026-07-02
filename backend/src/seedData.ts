@@ -27,23 +27,27 @@ async function seed() {
 
   // Seed Users
   const users = [
-    { username: 'teacher_zhang', account: 'zhangsan', password: 'password123', name: '张三', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhang', userType: 2, sex: 1, nickname: '张老师', role: 3, status: 1 },
-    { username: 'teacher_li', account: 'lisi', password: 'password123', name: '李四', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=li', userType: 2, sex: 1, nickname: '李老师', role: 3, status: 1 },
-    { username: 'teacher_wang', account: 'wangwu', password: 'password123', name: '王五', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wang', userType: 2, sex: 1, nickname: '王老师', role: 3, status: 1 },
-    { username: 'student_xiaoming', account: 'xiaoming', password: 'password123', name: '小明', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=xiaoming', userType: 1, sex: 1, nickname: '小明同学', role: 2, status: 1 },
-    { username: 'student_xiaohong', account: 'xiaohong', password: 'password123', name: '小红', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=xiaohong', userType: 1, sex: 2, nickname: '小红同学', role: 2, status: 1 },
-    { username: 'student_xiaohua', account: 'xiaohua', password: 'password123', name: '小华', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=xiaohua', userType: 1, sex: 2, nickname: '小华同学', role: 2, status: 1 },
-    { username: 'student_tom', account: 'tom', password: 'password123', name: 'Tom', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=tom', userType: 1, sex: 1, nickname: 'Tom', role: 2, status: 1 },
-    { username: 'student_jerry', account: 'jerry', password: 'password123', name: 'Jerry', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jerry', userType: 1, sex: 1, nickname: 'Jerry', role: 2, status: 1 },
-    { username: 'admin', account: 'admin', password: 'admin123', name: '管理员', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=admin', userType: 2, sex: 1, nickname: '管理员', role: 1, status: 1 },
-    { username: 'student_amy', account: 'amy', password: 'password123', name: 'Amy', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=amy', userType: 1, sex: 2, nickname: 'Amy同学', role: 2, status: 1 },
+    // userType: 1=学生, 2=教师; role: 1=管理员, 2=教师, 3=学生
+    { username: 'teacher_zhang', account: 'zhangsan', password: 'Qima@2024', name: '张三', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhang', userType: 2, sex: 1, nickname: '张老师', role: 2, status: 1 },
+    { username: 'teacher_li', account: 'lisi', password: 'Qima@2024', name: '李四', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=li', userType: 2, sex: 1, nickname: '李老师', role: 2, status: 1 },
+    { username: 'teacher_wang', account: 'wangwu', password: 'Qima@2024', name: '王五', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wang', userType: 2, sex: 1, nickname: '王老师', role: 2, status: 1 },
+    { username: 'student_xiaoming', account: 'xiaoming', password: 'Qima@2024', name: '小明', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=xiaoming', userType: 1, sex: 1, nickname: '小明同学', role: 3, status: 1 },
+    { username: 'student_xiaohong', account: 'xiaohong', password: 'Qima@2024', name: '小红', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=xiaohong', userType: 1, sex: 2, nickname: '小红同学', role: 3, status: 1 },
+    { username: 'student_xiaohua', account: 'xiaohua', password: 'Qima@2024', name: '小华', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=xiaohua', userType: 1, sex: 2, nickname: '小华同学', role: 3, status: 1 },
+    { username: 'student_tom', account: 'tom', password: 'Qima@2024', name: 'Tom', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=tom', userType: 1, sex: 1, nickname: 'Tom', role: 3, status: 1 },
+    { username: 'student_jerry', account: 'jerry', password: 'Qima@2024', name: 'Jerry', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=jerry', userType: 1, sex: 1, nickname: 'Jerry', role: 3, status: 1 },
+    { username: 'admin', account: 'admin', password: 'Admin@2024', name: '管理员', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=admin', userType: 2, sex: 1, nickname: '管理员', role: 1, status: 1 },
+    { username: 'student_amy', account: 'amy', password: 'Qima@2024', name: 'Amy', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=amy', userType: 1, sex: 2, nickname: 'Amy同学', role: 3, status: 1 },
   ];
 
   const savedUsers: User[] = [];
-  for (const user of users) {
-    const saved = await userRepo.save(userRepo.create(user));
+  for (const userData of users) {
+    const saved = await userRepo.save(userRepo.create({
+      ...userData,
+      password: userData.password,
+    }));
     savedUsers.push(saved);
-    console.log(`Created user: ${user.username}`);
+    console.log(`Created user: ${userData.username}`);
   }
 
   // Seed Courses

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Tag, Button, Card, Space, Modal, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { getHomeworks, deleteHomework } from '../../services/api';
+import { safeGetJSON, safeGetItem } from '../../utils/storage';
 
 export default function HomeworkPage() {
   const navigate = useNavigate();
@@ -9,13 +10,7 @@ export default function HomeworkPage() {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState(null);
 
-  useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if (userStr) setUser(JSON.parse(userStr));
-    fetchHomeworks();
-  }, []);
-
-  const fetchHomeworks = async () => {
+  const fetchHomeworks = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getHomeworks({});
@@ -23,21 +18,40 @@ export default function HomeworkPage() {
         setHomeworks(res.result?.records || []);
       }
     } catch (err) {
-      console.error(err);
+      console.error('加载作业列表异常:', err);
+      message.error('加载作业列表失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const token = safeGetItem('accessToken');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    const parsedUser = safeGetJSON('user');
+    if (parsedUser) setUser(parsedUser);
+    fetchHomeworks();
+  }, [navigate, fetchHomeworks]);
 
   const handleDelete = async (id) => {
     Modal.confirm({
       title: '确认删除',
       content: '确定要删除这个作业吗？',
       onOk: async () => {
-        const res = await deleteHomework(id);
-        if (res.status === 200) {
-          message.success('删除成功');
-          fetchHomeworks();
+        try {
+          const res = await deleteHomework(id);
+          if (res.status === 200) {
+            message.success('删除成功');
+            fetchHomeworks();
+          } else {
+            message.error(res.message || '删除失败');
+          }
+        } catch (err) {
+          console.error('删除作业异常:', err);
+          message.error('删除失败');
         }
       },
     });
@@ -49,7 +63,9 @@ export default function HomeworkPage() {
       dataIndex: 'title',
       key: 'title',
       render: (text, record) => (
-        <a onClick={() => navigate(`/homework/${record.id}`)}>{text}</a>
+        <Button type="link" onClick={() => navigate(`/homework/${record.id}`)}>
+          {text}
+        </Button>
       ),
     },
     {

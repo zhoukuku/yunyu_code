@@ -117,10 +117,15 @@ export class MaterialsService {
   }): Promise<{ materials: Material[]; total: number }> {
     const { type, page = 1, pageSize = 20 } = filters || {};
 
+    const sanitized = keyword
+      .replace(/\\/g, '\\\\')
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_');
+
     const query = this.materialRepository.createQueryBuilder('material')
       .where('material.isPublic = :isPublic', { isPublic: true })
       .andWhere('(material.name LIKE :keyword OR material.description LIKE :keyword OR material.tags LIKE :keyword)', {
-        keyword: `%${keyword}%`,
+        keyword: `%${sanitized}%`,
       });
 
     if (type) {
@@ -141,27 +146,33 @@ export class MaterialsService {
     byType: Record<MaterialType, number>;
     totalSize: number;
   }> {
-    const materials = await this.materialRepository.find({ where: { userId } });
-
-    const byType: Record<MaterialType, number> = {
-      [MaterialType.IMAGE]: 0,
-      [MaterialType.VIDEO]: 0,
-      [MaterialType.AUDIO]: 0,
-      [MaterialType.DOCUMENT]: 0,
-      [MaterialType.OTHER]: 0,
-    };
-
-    let totalSize = 0;
-
-    materials.forEach(m => {
-      byType[m.type]++;
-      totalSize += m.size;
-    });
+    const stats = await this.materialRepository
+      .createQueryBuilder('material')
+      .select('COUNT(*)', 'total')
+      .addSelect('SUM(CASE WHEN material.type = :image THEN 1 ELSE 0 END)', 'image')
+      .addSelect('SUM(CASE WHEN material.type = :video THEN 1 ELSE 0 END)', 'video')
+      .addSelect('SUM(CASE WHEN material.type = :audio THEN 1 ELSE 0 END)', 'audio')
+      .addSelect('SUM(CASE WHEN material.type = :document THEN 1 ELSE 0 END)', 'document')
+      .addSelect('SUM(CASE WHEN material.type = :other THEN 1 ELSE 0 END)', 'other')
+      .addSelect('COALESCE(SUM(material.size), 0)', 'totalSize')
+      .where('material.userId = :userId', { userId })
+      .setParameter('image', MaterialType.IMAGE)
+      .setParameter('video', MaterialType.VIDEO)
+      .setParameter('audio', MaterialType.AUDIO)
+      .setParameter('document', MaterialType.DOCUMENT)
+      .setParameter('other', MaterialType.OTHER)
+      .getRawOne();
 
     return {
-      total: materials.length,
-      byType,
-      totalSize,
+      total: parseInt(stats.total, 10) || 0,
+      byType: {
+        [MaterialType.IMAGE]: parseInt(stats.image, 10) || 0,
+        [MaterialType.VIDEO]: parseInt(stats.video, 10) || 0,
+        [MaterialType.AUDIO]: parseInt(stats.audio, 10) || 0,
+        [MaterialType.DOCUMENT]: parseInt(stats.document, 10) || 0,
+        [MaterialType.OTHER]: parseInt(stats.other, 10) || 0,
+      },
+      totalSize: parseInt(stats.totalSize, 10) || 0,
     };
   }
 }

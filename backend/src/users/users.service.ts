@@ -1,28 +1,29 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
 import { User } from '../entities/user.entity';
+import { UserCourse } from '../entities/user-course.entity';
+import { UserLessonProgress } from '../entities/user-lesson-progress.entity';
+import { Achievement } from '../entities/achievement.entity';
 import { UpdateProfileDto, ChangePasswordDto } from './dto/update-profile.dto';
 import { BatchAccountItemDto, BatchCreateResultDto } from './dto/batch-account.dto';
+import { escapeLikePattern } from '../common/utils/sanitize.util';
+import { paginateResponse, clampPageSize } from '../common/utils/pagination.util';
 
-const SALT_ROUNDS = 12;
-const DEFAULT_PASSWORD = '123456';
+const DEFAULT_PASSWORD = 'Qima@2024'; // 强密码：至少8字符，含大小写字母和数字
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    @InjectRepository(UserCourse)
+    private userCourseRepository: Repository<UserCourse>,
+    @InjectRepository(UserLessonProgress)
+    private userLessonProgressRepository: Repository<UserLessonProgress>,
+    @InjectRepository(Achievement)
+    private achievementRepository: Repository<Achievement>,
   ) {}
-
-  private sanitizeSearchInput(input: string): string {
-    // Escape special LIKE characters to prevent SQL injection
-    return input
-      .replace(/\\/g, '\\\\')
-      .replace(/%/g, '\\%')
-      .replace(/_/g, '\\_');
-  }
 
   async findAll(filters?: {
     role?: number;
@@ -42,7 +43,7 @@ export class UsersService {
     }
 
     if (filters?.search) {
-      const sanitized = this.sanitizeSearchInput(filters.search);
+      const sanitized = escapeLikePattern(filters.search);
       query.andWhere(
         '(user.username LIKE :search OR user.name LIKE :search OR user.account LIKE :search OR user.nickname LIKE :search)',
         { search: `%${sanitized}%` },
@@ -52,7 +53,8 @@ export class UsersService {
     const total = await query.getCount();
 
     if (filters?.page && filters?.pageSize) {
-      query.skip((filters.page - 1) * filters.pageSize).take(filters.pageSize);
+      const safePageSize = clampPageSize(filters.pageSize);
+      query.skip((filters.page - 1) * safePageSize).take(safePageSize);
     }
 
     query.orderBy('user.createdAt', 'DESC');
@@ -66,18 +68,13 @@ export class UsersService {
   }
 
   async findAllWithPagination(page: number = 1, pageSize: number = 10) {
+    const safePageSize = clampPageSize(pageSize);
     const [users, total] = await this.usersRepository.findAndCount({
       order: { createdAt: 'DESC' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      skip: (page - 1) * safePageSize,
+      take: safePageSize,
     });
-    return {
-      records: users.map((u) => this.sanitizeUser(u)),
-      total,
-      current: page,
-      size: pageSize,
-      pages: Math.ceil(total / pageSize),
-    };
+    return paginateResponse(users.map((u) => this.sanitizeUser(u)), total, page, safePageSize);
   }
 
   async findOne(id: number): Promise<Partial<User>> {
@@ -122,14 +119,14 @@ export class UsersService {
       throw new NotFoundException('用户不存在');
     }
 
-    // Verify old password
-    const isValid = await bcrypt.compare(dto.oldPassword, user.password);
+    // Verify old password (plaintext)
+    const isValid = dto.oldPassword === user.password;
     if (!isValid) {
       throw new BadRequestException('原密码错误');
     }
 
-    // Hash new password
-    user.password = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
+    // Store new password (plaintext)
+    user.password = dto.newPassword;
     await this.usersRepository.save(user);
 
     return { success: true };
@@ -156,7 +153,7 @@ export class UsersService {
       throw new NotFoundException('用户不存在');
     }
 
-    if (![1, 2, 3].includes(role)) {
+    if (![1, 2, 3, 4].includes(role)) {
       throw new BadRequestException('无效的角色值');
     }
 
@@ -171,14 +168,33 @@ export class UsersService {
       throw new NotFoundException('用户不存在');
     }
 
-    // Prevent updating sensitive fields
-    const { password, id: _id, ...allowedData } = data as any;
+    // Prevent updating sensitive/unique fields
+    const { password, id: _id, account, ...allowedData } = data as Record<string, unknown>;
     Object.assign(user, allowedData);
     const saved = await this.usersRepository.save(user);
     return this.sanitizeUser(saved);
   }
 
   async create(data: Partial<User>): Promise<Partial<User>> {
+    // Check for duplicate username or account
+    if (data.username && data.account) {
+      const existing = await this.usersRepository.findOne({
+        where: [{ username: data.username }, { account: data.account }],
+      });
+
+      if (existing) {
+        if (existing.username === data.username) {
+          throw new BadRequestException('用户名已存在');
+        }
+        throw new BadRequestException('账号已存在');
+      }
+    }
+
+    // Store password if provided, otherwise use default (plaintext)
+    if (!data.password) {
+      data.password = DEFAULT_PASSWORD;
+    }
+
     const user = this.usersRepository.create(data);
     const saved = await this.usersRepository.save(user);
     return this.sanitizeUser(saved);
@@ -198,7 +214,8 @@ export class UsersService {
   }
 
   async search(keyword: string, page: number = 1, pageSize: number = 10) {
-    const sanitizedKeyword = this.sanitizeSearchInput(keyword);
+    const safePageSize = clampPageSize(pageSize);
+    const sanitizedKeyword = escapeLikePattern(keyword);
 
     const queryBuilder = this.usersRepository.createQueryBuilder('user');
 
@@ -211,17 +228,11 @@ export class UsersService {
 
     const [users, total] = await queryBuilder
       .orderBy('user.createdAt', 'DESC')
-      .skip((page - 1) * pageSize)
-      .take(pageSize)
+      .skip((page - 1) * safePageSize)
+      .take(safePageSize)
       .getManyAndCount();
 
-    return {
-      records: users.map((u) => this.sanitizeUser(u)),
-      total,
-      current: page,
-      size: pageSize,
-      pages: Math.ceil(total / pageSize),
-    };
+    return paginateResponse(users.map((u) => this.sanitizeUser(u)), total, page, safePageSize);
   }
 
   async getLearningStats(userId: number): Promise<{
@@ -230,18 +241,42 @@ export class UsersService {
     totalLearningTime: number;
     achievements: number;
   }> {
-    // Placeholder - would join user_courses, progress, achievements tables
+    // Query real data from related tables
+    const coursesEnrolled = await this.userCourseRepository.count({
+      where: { userId, status: 1 },
+    });
+
+    const coursesCompleted = await this.userCourseRepository.count({
+      where: { userId, status: 2 },
+    });
+
+    const completedLessons = await this.userLessonProgressRepository.count({
+      where: { userId, isCompleted: 1 },
+    });
+
+    // Estimate learning time: average 15 minutes per completed lesson
+    const totalLearningTime = completedLessons * 15;
+
+    const achievements = await this.achievementRepository.count({
+      where: { userId, unlocked: true },
+    });
+
     return {
-      coursesEnrolled: 0,
-      coursesCompleted: 0,
-      totalLearningTime: 0,
-      achievements: 0,
+      coursesEnrolled,
+      coursesCompleted,
+      totalLearningTime,
+      achievements,
     };
   }
 
   async batchCreate(accounts: BatchAccountItemDto[]): Promise<BatchCreateResultDto> {
     const result: BatchCreateResultDto = { success: [], failed: [] };
-    const hashedPassword = await bcrypt.hash(DEFAULT_PASSWORD, SALT_ROUNDS);
+
+    if (!accounts || accounts.length === 0) {
+      throw new BadRequestException('账号列表不能为空');
+    }
+
+    const defaultPassword = DEFAULT_PASSWORD;
 
     for (const item of accounts) {
       try {
@@ -261,7 +296,7 @@ export class UsersService {
         const user = this.usersRepository.create({
           username: item.username,
           account: item.account,
-          password: hashedPassword,
+          password: defaultPassword,
           name: item.name || '',
           nickname: item.nickname || '',
           userType: item.userType ?? 2,
@@ -285,16 +320,27 @@ export class UsersService {
 
   async resetPassword(accountIds: string[]): Promise<{ success: string[]; failed: { id: string; reason: string }[] }> {
     const result = { success: [] as string[], failed: [] as { id: string; reason: string }[] };
-    const hashedPassword = await bcrypt.hash(DEFAULT_PASSWORD, SALT_ROUNDS);
+
+    if (!accountIds || accountIds.length === 0) {
+      throw new BadRequestException('账号ID列表不能为空');
+    }
+
+    const defaultPassword = DEFAULT_PASSWORD;
 
     for (const id of accountIds) {
       try {
-        const user = await this.usersRepository.findOne({ where: { id: +id } });
+        const numericId = +id;
+        if (isNaN(numericId)) {
+          result.failed.push({ id, reason: '无效的用户ID' });
+          continue;
+        }
+
+        const user = await this.usersRepository.findOne({ where: { id: numericId } });
         if (!user) {
           result.failed.push({ id, reason: '用户不存在' });
           continue;
         }
-        user.password = hashedPassword;
+        user.password = defaultPassword;
         await this.usersRepository.save(user);
         result.success.push(id);
       } catch (error) {
@@ -308,13 +354,23 @@ export class UsersService {
   async setRole(accountIds: string[], role: number): Promise<{ success: string[]; failed: { id: string; reason: string }[] }> {
     const result = { success: [] as string[], failed: [] as { id: string; reason: string }[] };
 
-    if (![1, 2, 3].includes(role)) {
+    if (!accountIds || accountIds.length === 0) {
+      throw new BadRequestException('账号ID列表不能为空');
+    }
+
+    if (![1, 2, 3, 4].includes(role)) {
       throw new BadRequestException('无效的角色值');
     }
 
     for (const id of accountIds) {
       try {
-        const user = await this.usersRepository.findOne({ where: { id: +id } });
+        const numericId = +id;
+        if (isNaN(numericId)) {
+          result.failed.push({ id, reason: '无效的用户ID' });
+          continue;
+        }
+
+        const user = await this.usersRepository.findOne({ where: { id: numericId } });
         if (!user) {
           result.failed.push({ id, reason: '用户不存在' });
           continue;

@@ -12,13 +12,13 @@ import {
   executeCode, deleteCodeExecution, getCodeExecutionStats,
   getProjects, createProject, updateProject, deleteProject
 } from '../../services/api';
+import { safeGetJSON, safeGetItem, safeSetItem } from '../../utils/storage';
 import { cpp } from '@codemirror/lang-cpp';
 import { EditorView, basicSetup } from 'codemirror';
 import { EditorState } from '@codemirror/state';
 import { oneDark } from '@codemirror/theme-one-dark';
 
 const { TextArea } = Input;
-const { TabPane } = Tabs;
 
 // ============================================================================
 // C++ Code Templates
@@ -1003,7 +1003,18 @@ const CppEditor = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [isCompiling, setIsCompiling] = useState(false);
   const [activeTab, setActiveTab] = useState('editor');
-  const [fontSize, setFontSize] = useState(14);
+  const [fontSize, setFontSize] = useState(() => {
+    try {
+      const saved = safeGetItem('cppEditorFontSize');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (parsed >= 12 && parsed <= 20) return parsed;
+      }
+    } catch {
+      // localStorage not available
+    }
+    return 14;
+  });
   const [showHistory, setShowHistory] = useState(false);
   const [historyList, setHistoryList] = useState([]);
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -1061,6 +1072,21 @@ const CppEditor = () => {
     };
   }, []);
 
+  // Refresh CodeMirror view layout when container resizes
+  useEffect(() => {
+    if (!editorContainerRef.current || !editorViewRef.current) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      editorViewRef.current?.requestMeasure();
+    });
+
+    resizeObserver.observe(editorContainerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   // Update font size when changed
   useEffect(() => {
     if (editorViewRef.current) {
@@ -1069,6 +1095,15 @@ const CppEditor = () => {
           '.cm-content': { fontFamily: 'Consolas, Monaco, "Courier New", monospace', fontSize: `${fontSize}px` },
         }).parse(),
       });
+    }
+  }, [fontSize]);
+
+  // Persist font size to localStorage
+  useEffect(() => {
+    try {
+      safeSetItem('cppEditorFontSize', String(fontSize));
+    } catch {
+      // localStorage not available
     }
   }, [fontSize]);
 
@@ -1126,12 +1161,11 @@ const CppEditor = () => {
     setIsCompiling(true);
     setActiveTab('output');
     handleClear();
-    log('=== 正在编译 C++ 代码 ===', 'info');
+    log('=== 正在创建执行任务 ===', 'info');
 
     try {
       // First create a code execution record
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const user = safeGetJSON('user');
 
       const createResult = await createCodeExecution({
         userId: user?.id,
@@ -1140,7 +1174,7 @@ const CppEditor = () => {
       });
 
       if (createResult.status !== 200) {
-        throw new Error('创建执行任务失败');
+        throw new Error(createResult.message || '创建执行任务失败');
       }
 
       const execId = createResult.result?.id;
@@ -1151,12 +1185,13 @@ const CppEditor = () => {
       setExecutionId(execId);
       setIsCompiling(false);
       setIsRunning(true);
-      log('编译成功，正在运行程序...', 'info');
+      log('正在编译并运行 C++ 程序...', 'info');
 
-      // Execute the code
+      // Execute the code (backend handles compilation + execution)
       const execResult = await executeCode(execId);
 
       setIsRunning(false);
+      setExecutionId(null);
 
       if (execResult.status === 200) {
         const result = execResult.result;
@@ -1183,6 +1218,7 @@ const CppEditor = () => {
     } catch (error) {
       setIsRunning(false);
       setIsCompiling(false);
+      setExecutionId(null);
       const parsedError = parseError(error.message || '编译/运行失败');
       setCurrentError(parsedError);
       logError(`\n=== ${parsedError.category} ===\n${parsedError.message}`);
@@ -1206,31 +1242,40 @@ const CppEditor = () => {
     }
     setIsRunning(false);
     setIsCompiling(false);
+    setExecutionId(null);
     log('\n=== 执行已停止 ===', 'warn');
+    log('注意: 如果程序已在后台运行，可能需要等待进程自然结束。', 'info');
   };
 
   const handleSaveToCloud = async () => {
+    if (!projectName.trim()) {
+      message.warning('请输入项目名称');
+      return;
+    }
     try {
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const user = safeGetJSON('user');
 
       if (currentProjectId) {
         await updateProject(currentProjectId, {
-          name: projectName,
+          name: projectName.trim(),
           type: 'cpp',
           content: code,
         });
         message.success('项目已更新');
       } else {
-        const result = await createProject({
-          name: projectName,
+        const response = await createProject({
+          name: projectName.trim(),
           type: 'cpp',
           content: code,
           userId: user?.id,
         });
-        if (result) {
-          setCurrentProjectId(result.id);
+        // Handle API interceptor wrapper: { status, result: project }
+        const project = response?.result || response;
+        if (project && project.id) {
+          setCurrentProjectId(project.id);
           message.success('项目已保存');
+        } else {
+          message.warning('项目保存成功，但未获取到项目ID');
         }
       }
       setShowSaveModal(false);
@@ -1242,17 +1287,23 @@ const CppEditor = () => {
 
   const handleLoadProjects = async () => {
     try {
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const user = safeGetJSON('user');
 
-      const projects = await getProjects(user?.id);
-      const cppProjects = Array.isArray(projects)
-        ? projects.filter(p => p.type === 'cpp')
+      const response = await getProjects(user?.id);
+      // Handle API interceptor wrapper: { status, result: { records: [...] } }
+      // Also handle direct paginated response: { records: [...], total, ... }
+      const projectList = response?.result?.records
+        || response?.records
+        || response?.result
+        || (Array.isArray(response) ? response : []);
+      const cppProjects = Array.isArray(projectList)
+        ? projectList.filter(p => p.type === 'cpp')
         : [];
       setSavedProjects(cppProjects);
       setShowHistory(true);
     } catch (error) {
       console.error('加载项目列表失败:', error);
+      message.error('加载项目列表失败，请重试');
     }
   };
 
@@ -1273,13 +1324,23 @@ const CppEditor = () => {
   };
 
   const handleDeleteProject = async (id) => {
-    try {
-      await deleteProject(id);
-      setSavedProjects(prev => prev.filter(p => p.id !== id));
-      message.success('项目已删除');
-    } catch (error) {
-      message.error('删除失败');
-    }
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这个项目吗？此操作不可恢复。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteProject(id);
+          setSavedProjects(prev => prev.filter(p => p.id !== id));
+          message.success('项目已删除');
+        } catch (error) {
+          console.error('删除失败:', error);
+          message.error('删除失败，请重试');
+        }
+      },
+    });
   };
 
   const handleCopyCode = () => {
@@ -1375,13 +1436,13 @@ const CppEditor = () => {
           <Button icon={<SnippetsOutlined />} onClick={() => setShowTemplateModal(true)}>
             模板
           </Button>
-          <Dropdown overlay={
-            <Space direction="vertical" style={{ padding: 8 }}>
-              <Button icon={<CopyOutlined />} onClick={handleCopyCode}>复制代码</Button>
-              <Button icon={<FormatPainterOutlined />} onClick={handleFormatCode}>格式化</Button>
-              <Button icon={<DownloadOutlined />} onClick={handleDownloadCode}>下载.cpp文件</Button>
-            </Space>
-          }>
+          <Dropdown menu={{
+            items: [
+              { key: 'copy', label: '复制代码', icon: <CopyOutlined />, onClick: handleCopyCode },
+              { key: 'format', label: '格式化', icon: <FormatPainterOutlined />, onClick: handleFormatCode },
+              { key: 'download', label: '下载.cpp文件', icon: <DownloadOutlined />, onClick: handleDownloadCode },
+            ],
+          }}>
             <Button icon={<EditOutlined />}>更多</Button>
           </Dropdown>
         </Space>
@@ -1391,11 +1452,9 @@ const CppEditor = () => {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Editor panel */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #444' }}>
-          <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ height: '100%' }}>
-            <TabPane tab="编辑器" key="editor" style={{ height: '100%' }}>
-              <div style={{ flex: 1, padding: 0, height: '100%' }} ref={editorContainerRef} />
-            </TabPane>
-            <TabPane tab="历史记录" key="history">
+          <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ height: '100%' }} items={[
+            { key: 'editor', label: '编辑器', children: <div style={{ flex: 1, padding: 0, height: '100%' }} ref={editorContainerRef} /> },
+            { key: 'history', label: '历史记录', children: (
               <div style={{ padding: 16 }}>
                 <Space direction="vertical" style={{ width: '100%' }}>
                   <Button type="primary" icon={<PlusOutlined />} onClick={handleNewProject} block>
@@ -1428,8 +1487,8 @@ const CppEditor = () => {
                   )}
                 </Space>
               </div>
-            </TabPane>
-          </Tabs>
+            )},
+          ]} />
         </div>
 
         {/* Output panel */}

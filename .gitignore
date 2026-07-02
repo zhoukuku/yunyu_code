@@ -27,10 +27,11 @@ backend_new.log
 backend_test.log
 electron*.log
 
-# Environment
+# Environment - do NOT commit .env files containing secrets
 .env
 .env.local
 .env.*.local
+backend/.env
 
 # Temp files
 temp/
@@ -52,7 +53,7 @@ testResults.json
 # Cache
 .cache/
 .nestjs/
-.tsbuildinfo
+*.tsbuildinfo
 
 # Backup
 backup/
@@ -63,11 +64,7 @@ backup/
 archives/
 
 # Scripts (compiled/test outputs)
-test_*.js
-test_*.py
-test_*.cpp
 scraped-data/
 
 # electron-builder cache
-electron/
 dist-electron/

@@ -22,7 +22,7 @@ export async function parseCSV(buffer: Buffer): Promise<ParsedAccount[]> {
     })
       .on('data', (row: Record<string, string>) => {
         records.push({
-          username: row.username || row.username || row.user_name || row.user || '',
+          username: row.username || row.user_name || row.user || '',
           account: row.account || row.id || row.userId || row.user_id || '',
           name: row.name || row.xingming || row.姓名 || undefined,
           nickname: row.nickname || row.nc || row.nickname || row.昵称 || undefined,

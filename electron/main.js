@@ -898,7 +898,7 @@ function setupIPC() {
     // Fallback: try to use Electron Notification API directly
     // This also covers the case where notificationManager.show() returned null
     try {
-      const { Notification: ENotification } = electron;
+      const { Notification: ENotification } = require('electron');
       if (ENotification && ENotification.isSupported && ENotification.isSupported()) {
         const n = new ENotification({ title: title || '', body: body || '' });
         n.show();

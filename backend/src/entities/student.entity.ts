@@ -6,11 +6,14 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Organization } from './organization.entity';
 import { User } from './user.entity';
 
 @Entity('students')
+@Index(['organizationId'])
+@Index(['userId'])
 export class Student {
   @PrimaryGeneratedColumn()
   id: number;

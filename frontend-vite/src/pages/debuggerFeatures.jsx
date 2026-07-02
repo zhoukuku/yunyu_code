@@ -285,13 +285,13 @@ const formatValue = (value, maxLength = 50) => {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   if (typeof value === 'string') {
-    const truncated = value.length > maxLength ? value.slice(0, maxLength) + '...' : value;
+    const truncated = value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
     return `"${truncated}"`;
   }
   if (typeof value === 'object') {
     try {
       const str = JSON.stringify(value);
-      return str.length > maxLength ? str.slice(0, maxLength) + '...' : str;
+      return str.length > maxLength ? `${str.slice(0, maxLength)}...` : str;
     } catch {
       return String(value);
     }

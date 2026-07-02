@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Tag, Button, Input, Card, Modal, Form, Select, message, Popconfirm } from 'antd';
 import { getNotices, createNotice, updateNotice, deleteNotice } from '../../services/api';
 
@@ -14,28 +14,29 @@ const noticeTypeMap = {
 
 export default function NoticeManage() {
   const [data, setData] = useState([]);
-  const [loading, setSetLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
-  const fetchNotices = async () => {
-    setSetLoading(true);
+  const fetchNotices = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await getNotices();
       if (res.status === 200) {
         setData(res.result?.records || []);
       }
     } catch (e) {
-      message.error('获取通知列表失败');
+      message.error(e.response?.data?.message || '获取通知列表失败');
     } finally {
-      setSetLoading(false);
+      setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchNotices();
-  }, []);
+  }, [fetchNotices]);
 
   const handleAdd = () => {
     setEditingId(null);
@@ -59,19 +60,26 @@ export default function NoticeManage() {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      let res;
-      if (editingId) {
-        res = await updateNotice(editingId, values);
-      } else {
-        res = await createNotice(values);
+      setSubmitting(true);
+      try {
+        let res;
+        if (editingId) {
+          res = await updateNotice(editingId, values);
+        } else {
+          res = await createNotice(values);
+        }
+        if (res.status === 200) {
+          message.success(editingId ? '通知更新成功' : '通知发布成功');
+          setModalVisible(false);
+          fetchNotices();
+        }
+      } catch (e) {
+        message.error(e.response?.data?.message || (editingId ? '更新失败' : '发布失败'));
+      } finally {
+        setSubmitting(false);
       }
-      if (res.status === 200) {
-        message.success(editingId ? '通知更新成功' : '通知发布成功');
-        setModalVisible(false);
-        fetchNotices();
-      }
-    } catch (e) {
-      message.error(editingId ? '更新失败' : '发布失败');
+    } catch (validationError) {
+      // Form validation failed — Ant Design already shows field-level errors, no extra toast needed
     }
   };
 
@@ -83,7 +91,7 @@ export default function NoticeManage() {
         fetchNotices();
       }
     } catch (e) {
-      message.error('删除失败');
+      message.error(e.response?.data?.message || '删除失败');
     }
   };
 
@@ -130,6 +138,7 @@ export default function NoticeManage() {
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
         width={600}
       >
         <Form form={form} layout="vertical">

@@ -1,13 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Project } from '../entities/project.entity';
+import { CloudVariablesGateway } from '../cloud-variables/cloud-variables.gateway';
 
 @Injectable()
 export class ProjectsService {
   constructor(
     @InjectRepository(Project)
     private projectsRepository: Repository<Project>,
+    @Optional()
+    private cloudVariablesGateway?: CloudVariablesGateway,
   ) {}
 
   async create(data: Partial<Project>): Promise<Project> {
@@ -15,16 +18,32 @@ export class ProjectsService {
     return this.projectsRepository.save(project);
   }
 
-  async findAll(userId?: number, search?: string): Promise<Project[]> {
+  async findAll(userId?: number, search?: string, page: number = 1, pageSize: number = 20): Promise<{ records: Project[]; total: number; current: number; size: number; pages: number }> {
     const query = this.projectsRepository.createQueryBuilder('project');
     if (userId) {
       query.where('project.userId = :userId', { userId });
+    } else {
+      // When no userId is specified, only show public projects
+      query.where('project.isPublic = :isPublic', { isPublic: 1 });
     }
     if (search) {
-      query.andWhere('project.name LIKE :search', { search: `%${search}%` });
+      const sanitized = search
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_');
+      query.andWhere('project.name LIKE :search', { search: `%${sanitized}%` });
     }
     query.orderBy('project.updatedAt', 'DESC');
-    return query.getMany();
+    query.skip((page - 1) * pageSize).take(pageSize);
+
+    const [records, total] = await query.getManyAndCount();
+    return {
+      records,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
+    };
   }
 
   async findOne(id: number): Promise<Project | null> {
@@ -61,8 +80,17 @@ export class ProjectsService {
     return project?.cloudVariables || [];
   }
 
-  async updateCloudVariables(id: number, cloudVariables: { name: string; value: string }[]) {
+  async updateCloudVariables(id: number, cloudVariables: { name: string; value: string }[], userId?: number) {
     await this.projectsRepository.update(id, { cloudVariables });
+
+    // Broadcast real-time cloud variable update via WebSocket
+    this.cloudVariablesGateway?.broadcastCloudVariableUpdate({
+      projectId: id,
+      variables: cloudVariables,
+      updatedBy: userId,
+      timestamp: Date.now(),
+    });
+
     return this.findOne(id);
   }
 }

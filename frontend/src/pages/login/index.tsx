@@ -5,6 +5,14 @@ import { history } from '@umijs/max';
 import { login as loginApi } from '@/services/api';
 import './index.less';
 
+// Safe localStorage helpers
+function safeSetItem(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch (e) { /* Swallow */ }
+}
+function safeSetJSON(key: string, value: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* Swallow */ }
+}
+
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
@@ -12,16 +20,16 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await loginApi(values.account, values.password);
-      if (res.status === 200 && res.result?.accessToken) {
-        localStorage.setItem('accessToken', res.result.accessToken);
-        localStorage.setItem('user', JSON.stringify(res.result.user));
+      if (res && res.status === 200 && res.result?.accessToken) {
+        safeSetItem('accessToken', res.result.accessToken);
+        safeSetJSON('user', res.result.user);
         message.success('登录成功');
         history.push('/');
       } else {
-        message.error(res.result?.msg || '登录失败');
+        message.error(res?.result?.msg || '登录失败');
       }
-    } catch (e: any) {
-      message.error(e?.message || '登录失败');
+    } catch (e: unknown) {
+      message.error((e instanceof Error ? e.message : null) || '登录失败');
     } finally {
       setLoading(false);
     }

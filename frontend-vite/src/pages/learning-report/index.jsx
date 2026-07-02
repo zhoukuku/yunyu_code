@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Row, Col, Progress, Tag, Button, Select, Spin, Empty, Tabs, Radio, Space, message } from 'antd';
 import {
   BarChartOutlined,
@@ -12,26 +12,20 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { getSkillAtlas, getLearningReport, getLearningStats, getCourseProgress } from '../../services/api';
+import { safeGetItem } from '../../utils/storage';
 
 export default function LearningReportPage() {
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [reportType, setReportType] = useState('overall');
   const [report, setReport] = useState(null);
   const [skillAtlas, setSkillAtlas] = useState([]);
   const [stats, setStats] = useState(null);
   const [courses, setCourses] = useState([]);
 
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      window.location.href = '/login';
-      return;
-    }
-    loadData();
-  }, [reportType]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const [atlasRes, reportRes, statsRes, coursesRes] = await Promise.all([
         getSkillAtlas(),
@@ -45,14 +39,24 @@ export default function LearningReportPage() {
       if (statsRes.status === 200) setStats(statsRes.result);
       if (coursesRes.status === 200) setCourses(coursesRes.result || []);
     } catch (e) {
+      setError(true);
       message.error('加载学习报告失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [reportType]);
+
+  useEffect(() => {
+    const token = safeGetItem('accessToken');
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
+    loadData();
+  }, [loadData]);
 
   const formatTime = (minutes) => {
-    if (!minutes) return '0分钟';
+    if (minutes == null || isNaN(minutes)) return '-';
     if (minutes < 60) return `${minutes}分钟`;
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
@@ -87,7 +91,7 @@ export default function LearningReportPage() {
                 <div style={{ textAlign: 'center' }}>
                   <BookOutlined style={{ fontSize: 32, color: '#1890ff' }} />
                   <div style={{ fontSize: 24, fontWeight: 'bold', marginTop: 8 }}>
-                    {report?.coursesEnrolled || 0}
+                    {stats?.totalEnrolledCourses || 0}
                   </div>
                   <div style={{ color: '#666' }}>在学课程</div>
                 </div>
@@ -98,7 +102,7 @@ export default function LearningReportPage() {
                 <div style={{ textAlign: 'center' }}>
                   <CheckCircleOutlined style={{ fontSize: 32, color: '#52c41a' }} />
                   <div style={{ fontSize: 24, fontWeight: 'bold', marginTop: 8 }}>
-                    {report?.coursesCompleted || 0}
+                    {stats?.completedCourses || 0}
                   </div>
                   <div style={{ color: '#666' }}>已完成课程</div>
                 </div>
@@ -109,7 +113,7 @@ export default function LearningReportPage() {
                 <div style={{ textAlign: 'center' }}>
                   <ThunderboltOutlined style={{ fontSize: 32, color: '#722ed1' }} />
                   <div style={{ fontSize: 24, fontWeight: 'bold', marginTop: 8 }}>
-                    {report?.lessonsCompleted || 0}
+                    {stats?.totalLessonsCompleted || 0}
                   </div>
                   <div style={{ color: '#666' }}>已完成课时</div>
                 </div>
@@ -120,7 +124,7 @@ export default function LearningReportPage() {
                 <div style={{ textAlign: 'center' }}>
                   <ClockCircleOutlined style={{ fontSize: 32, color: '#faad14' }} />
                   <div style={{ fontSize: 24, fontWeight: 'bold', marginTop: 8 }}>
-                    {formatTime(report?.totalStudyMinutes || 0)}
+                    {formatTime(stats?.totalLearningMinutes || 0)}
                   </div>
                   <div style={{ color: '#666' }}>累计学习时长</div>
                 </div>
@@ -334,6 +338,15 @@ export default function LearningReportPage() {
 
   return (
     <div style={{ padding: 24 }}>
+      {/* Error state */}
+      {error && !report && skillAtlas.length === 0 && courses.length === 0 && !loading && (
+        <Card style={{ marginBottom: 16 }}>
+          <Empty description="加载失败，请稍后重试">
+            <Button type="primary" onClick={loadData}>重新加载</Button>
+          </Empty>
+        </Card>
+      )}
+
       <Card
         title="学习报告 / 技能图谱"
         extra={

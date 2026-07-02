@@ -4,17 +4,16 @@ import { Request, Response, NextFunction } from 'express';
 @Injectable()
 export class SecurityHeadersMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
-    // Prevent XSS attacks
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-
     // Prevent MIME type sniffing
     res.setHeader('X-Content-Type-Options', 'nosniff');
 
     // Prevent clickjacking
     res.setHeader('X-Frame-Options', 'DENY');
 
-    // Enable strict transport security (HSTS)
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    // Enable strict transport security (HSTS) — only in production (assumes HTTPS)
+    if (process.env.NODE_ENV === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    }
 
     // Referrer policy
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');

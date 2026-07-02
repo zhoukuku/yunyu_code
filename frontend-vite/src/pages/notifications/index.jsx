@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, List, Tag, Button, Modal, message } from 'antd';
 import { BellOutlined, CheckOutlined, DeleteOutlined, ReadOutlined } from '@ant-design/icons';
 import { getNotices, markNoticeAsRead, markAllNoticesAsRead, deleteNotice } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 
 const noticeTypeMap = {
   '课程': { color: 'blue', label: '课程' },
@@ -15,20 +16,10 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
 
-  useEffect(() => {
-    const user = localStorage.getItem('user');
-    if (user) {
-      const parsed = JSON.parse(user);
-      setUserId(parsed.id);
-      fetchNotifications(parsed.id);
-    }
-  }, []);
-
-  const fetchNotifications = async (uid) => {
-    const targetUserId = uid || userId;
+  const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getNotices(targetUserId);
+      const res = await getNotices();
       if (res.status === 200) {
         // Handle both array and paginated response { records: [] }
         const result = res.result;
@@ -50,7 +41,15 @@ export default function NotificationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const parsedUser = safeGetJSON('user');
+    if (parsedUser) {
+      setUserId(parsedUser.id);
+      fetchNotifications();
+    }
+  }, [fetchNotifications]);
 
   const handleMarkAsRead = async (id) => {
     try {
@@ -67,7 +66,7 @@ export default function NotificationsPage() {
   const handleMarkAllAsRead = async () => {
     if (!userId) return;
     try {
-      const res = await markAllNoticesAsRead(userId);
+      const res = await markAllNoticesAsRead();
       if (res.status === 200) {
         setNotifications(prev => prev.map(n => ({ ...n, isRead: 1 })));
         message.success('已标记全部为已读');
@@ -102,7 +101,30 @@ export default function NotificationsPage() {
   const formatTime = (sendTime) => {
     if (!sendTime) return '';
     const date = new Date(sendTime);
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const now = new Date();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const time = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+    // Today: just time
+    if (date.toDateString() === now.toDateString()) {
+      return time;
+    }
+
+    // Yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+      return `昨天 ${time}`;
+    }
+
+    // This year: MM-DD HH:mm
+    if (date.getFullYear() === now.getFullYear()) {
+      return `${mm}-${dd} ${time}`;
+    }
+
+    // Older: YYYY-MM-DD HH:mm
+    return `${date.getFullYear()}-${mm}-${dd} ${time}`;
   };
 
   return (
@@ -121,6 +143,7 @@ export default function NotificationsPage() {
       >
         <List
           dataSource={notifications}
+          rowKey="id"
           locale={{ emptyText: '暂无通知' }}
           renderItem={item => {
             const typeInfo = noticeTypeMap[item.noticeType] || { color: 'default', label: item.noticeType || '系统' };

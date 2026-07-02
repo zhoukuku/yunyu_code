@@ -4,12 +4,19 @@
   "description": "云屿学习平台 - 编程教育桌面应用",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron .",
+    "start": "node run-electron.js .",
+    "start:dev": "node run-electron.js .",
+    "dev": "node run-electron.js .",
+    "cleanup": "node scripts/cleanup-processes.js",
+    "prebuild": "node scripts/cleanup-processes.js",
     "build": "electron-builder",
+    "prebuild:win": "node scripts/cleanup-processes.js",
     "build:win": "electron-builder --win",
+    "prebuild:mac": "node scripts/cleanup-processes.js",
     "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "prebuild:linux": "node scripts/cleanup-processes.js",
+    "build:linux": "electron-builder --linux",
+    "diagnose": "node run-electron.js ."
   },
   "keywords": [
     "electron",
@@ -21,7 +28,7 @@
   "author": "云屿科技",
   "license": "MIT",
   "devDependencies": {
-    "electron": "file:electron-18.3.15.tgz",
+    "electron": "^18.3.15",
     "electron-builder": "^24.9.1"
   },
   "dependencies": {

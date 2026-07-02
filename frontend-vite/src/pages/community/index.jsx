@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Row, Col, Tabs, Avatar, Button, Modal, Form, Input, message, Empty, Select, Space, DatePicker } from 'antd';
-import { HeartOutlined, HeartFilled, EyeOutlined, UserOutlined, PlusOutlined, CommentOutlined, SearchOutlined } from '@ant-design/icons';
+import { HeartOutlined, HeartFilled, EyeOutlined, UserOutlined, PlusOutlined, CommentOutlined, SearchOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getCommunityPostsFiltered, createCommunityPost, toggleLike, getUserLikedPosts, getCommunityPost } from '../../services/api';
+import { getCommunityPostsFiltered, createCommunityPost, deleteCommunityPost, toggleLike, getUserLikedPosts, getCommunityPost } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 
-const { TabPane } = Tabs;
 const { TextArea } = Input;
 const { Option } = Select;
 const { RangePicker } = DatePicker;
@@ -26,46 +26,46 @@ export default function CommunityPage() {
   });
   const [form] = Form.useForm();
 
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const currentUser = safeGetJSON('user', {});
   const currentUserId = currentUser.id;
 
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getCommunityPostsFiltered(activeTab, {
+      const res = await getCommunityPostsFiltered(activeTab, {
         sortBy: filters.sortBy,
         sortOrder: filters.sortOrder,
         startDate: filters.startDate,
         endDate: filters.endDate,
         search: filters.search || undefined,
       });
-      setPosts(data || []);
+      setPosts(res?.result || []);
     } catch (error) {
       console.error('Failed to fetch posts:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, filters.sortBy, filters.sortOrder, filters.startDate, filters.endDate, filters.search]);
 
-  const fetchLikedPosts = async () => {
+  const fetchLikedPosts = useCallback(async () => {
     if (currentUserId) {
       try {
-        const liked = await getUserLikedPosts(currentUserId);
+        const res = await getUserLikedPosts(currentUserId);
+        const liked = Array.isArray(res) ? res : res?.result;
         setLikedPosts(liked || []);
       } catch (error) {
         console.error('Failed to fetch liked posts:', error);
       }
     }
-  };
+  }, [currentUserId]);
 
   useEffect(() => {
     fetchPosts();
+  }, [fetchPosts]);
+
+  useEffect(() => {
     fetchLikedPosts();
-  }, [activeTab]);
-
-  useEffect(() => {
-    fetchPosts();
-  }, [filters]);
+  }, [fetchLikedPosts]);
 
   const handleTabChange = (key) => {
     setActiveTab(key);
@@ -85,25 +85,26 @@ export default function CommunityPage() {
 
   const handleLike = async (postId) => {
     if (!currentUserId) {
-      message.warning('Please login first');
+      message.warning('请先登录');
       return;
     }
     try {
-      const result = await toggleLike(postId, currentUserId);
+      const result = await toggleLike(postId);
+      const data = result?.result;
       setPosts(posts.map(post => {
         if (post.id === postId) {
-          return { ...post, likesCount: result.likesCount };
+          return { ...post, likesCount: data?.likesCount ?? post.likesCount };
         }
         return post;
       }));
-      if (result.liked) {
+      if (data?.liked) {
         setLikedPosts([...likedPosts, postId]);
       } else {
         setLikedPosts(likedPosts.filter(id => id !== postId));
       }
     } catch (error) {
       console.error('Failed to toggle like:', error);
-      message.error('Failed to toggle like');
+      message.error('点赞操作失败');
     }
   };
 
@@ -111,18 +112,17 @@ export default function CommunityPage() {
     navigate(`/community/work/${postId}`);
   };
 
-  const handleCardClick = async (postId) => {
-    try {
-      await getCommunityPost(postId);
-    } catch (error) {
-      console.error('Failed to view post:', error);
-    }
+  const handleCardClick = (postId) => {
+    // Fire-and-forget: register a view on the server without blocking navigation
+    getCommunityPost(postId).catch((error) => {
+      console.error('Failed to record view:', error);
+    });
     navigate(`/community/work/${postId}`);
   };
 
   const handleCreatePost = async (values) => {
     if (!currentUserId) {
-      message.warning('Please login first');
+      message.warning('请先登录');
       return;
     }
     try {
@@ -134,29 +134,49 @@ export default function CommunityPage() {
         userId: currentUserId,
         scope: activeTab,
       });
-      message.success('Work shared successfully!');
+      message.success('作品分享成功！');
       setModalVisible(false);
       form.resetFields();
       fetchPosts();
     } catch (error) {
       console.error('Failed to create post:', error);
-      message.error('Failed to share work');
+      message.error('分享作品失败');
     }
+  };
+
+  const handleDeletePost = (postId) => {
+    Modal.confirm({
+      title: '删除作品',
+      content: '确定要删除此作品吗？此操作不可撤销。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteCommunityPost(postId);
+          message.success('作品已删除');
+          fetchPosts();
+        } catch (error) {
+          console.error('Failed to delete post:', error);
+          message.error('删除作品失败');
+        }
+      },
+    });
   };
 
   return (
     <div style={{ padding: 24 }}>
       <Card
-        title="Creative Community"
+        title="创意社区"
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
-            Share Work
+            分享作品
           </Button>
         }
       >
         <Space wrap style={{ marginBottom: 16 }}>
           <Input.Search
-            placeholder="Search works..."
+            placeholder="搜索作品..."
             allowClear
             style={{ width: 200 }}
             onSearch={(value) => handleFilterChange('search', value)}
@@ -166,22 +186,22 @@ export default function CommunityPage() {
             onChange={(value) => handleFilterChange('sortBy', value)}
             style={{ width: 140 }}
           >
-            <Option value="createdAt">Latest</Option>
-            <Option value="likesCount">Most Liked</Option>
-            <Option value="viewsCount">Most Viewed</Option>
+            <Option value="createdAt">最新</Option>
+            <Option value="likesCount">最多点赞</Option>
+            <Option value="viewsCount">最多浏览</Option>
           </Select>
           <RangePicker onChange={handleDateChange} />
         </Space>
 
-        <Tabs activeKey={activeTab} onChange={handleTabChange}>
-          <TabPane tab="School Works" key="school" />
-          <TabPane tab="National Works" key="national" />
-        </Tabs>
+        <Tabs activeKey={activeTab} onChange={handleTabChange} items={[
+          { key: 'school', label: '校园作品' },
+          { key: 'national', label: '全国作品' },
+        ]} />
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>Loading...</div>
+          <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div>
         ) : posts.length === 0 ? (
-          <Empty description="No works yet. Be the first to share!" />
+          <Empty description="暂无作品，快来分享第一个吧！" />
         ) : (
           <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
             {posts.map(post => (
@@ -221,19 +241,30 @@ export default function CommunityPage() {
                     <Button type="text" icon={<EyeOutlined />}>
                       {post.viewsCount || 0}
                     </Button>,
-                  ]}
+                    currentUserId === post.userId && (
+                      <Button
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePost(post.id);
+                        }}
+                      />
+                    ),
+                  ].filter(Boolean)}
                 >
                   <Card.Meta
                     title={<span onClick={() => handleCardClick(post.id)} style={{ cursor: 'pointer' }}>{post.title}</span>}
                     description={
                       <span>
-                        <Avatar size="small" icon={<UserOutlined />} /> {post.userId ? `User ${post.userId}` : 'Anonymous'}
+                        <Avatar size="small" icon={<UserOutlined />} /> {post.userId ? `用户 ${post.userId}` : '匿名'}
                       </span>
                     }
                   />
                   {post.description && (
                     <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
-                      {post.description.length > 50 ? post.description.substring(0, 50) + '...' : post.description}
+                      {post.description.length > 50 ? `${post.description.substring(0, 50)}...` : post.description}
                     </div>
                   )}
                 </Card>
@@ -244,7 +275,7 @@ export default function CommunityPage() {
       </Card>
 
       <Modal
-        title="Share Your Work"
+        title="分享你的作品"
         open={modalVisible}
         onCancel={() => {
           setModalVisible(false);
@@ -253,21 +284,21 @@ export default function CommunityPage() {
         footer={null}
       >
         <Form form={form} onFinish={handleCreatePost} layout="vertical">
-          <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Please enter a title' }]}>
-            <Input placeholder="Enter work title" />
+          <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
+            <Input placeholder="请输入作品标题" />
           </Form.Item>
-          <Form.Item name="description" label="Description">
-            <TextArea rows={3} placeholder="Describe your work (optional)" />
+          <Form.Item name="description" label="描述">
+            <TextArea rows={3} placeholder="描述你的作品（选填）" />
           </Form.Item>
-          <Form.Item name="thumbnail" label="Thumbnail URL">
-            <Input placeholder="Image URL (optional, will use default)" />
+          <Form.Item name="thumbnail" label="缩略图链接">
+            <Input placeholder="图片链接（选填，将使用默认图）" />
           </Form.Item>
-          <Form.Item name="projectUrl" label="Project URL">
-            <Input placeholder="Project link (optional)" />
+          <Form.Item name="projectUrl" label="项目链接">
+            <Input placeholder="项目链接（选填）" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block>
-              Share
+              分享
             </Button>
           </Form.Item>
         </Form>

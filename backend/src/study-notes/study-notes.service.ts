@@ -22,8 +22,8 @@ export class StudyNotesService {
     note.userId = userId;
     note.title = data.title;
     note.content = data.content;
-    note.courseId = data.courseId || null;
-    note.lessonId = data.lessonId || null;
+    note.courseId = data.courseId ?? null;
+    note.lessonId = data.lessonId ?? null;
     note.tags = data.tags || '';
     note.isPublic = data.isPublic || false;
     return this.studyNoteRepository.save(note);
@@ -34,22 +34,60 @@ export class StudyNotesService {
     lessonId?: number;
     tag?: string;
     keyword?: string;
-  }): Promise<StudyNote[]> {
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ records: StudyNote[]; total: number; current: number; size: number; pages: number }> {
     const where: any = { userId };
     if (filters?.courseId) where.courseId = filters.courseId;
     if (filters?.lessonId) where.lessonId = filters.lessonId;
-    if (filters?.tag) where.tags = Like(`%${filters.tag}%`);
-    if (filters?.keyword) {
-      where.title = Like(`%${filters.keyword}%`);
+    if (filters?.tag) {
+      const sanitizedTag = filters.tag
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_');
+      where.tags = Like(`%${sanitizedTag}%`);
     }
-    return this.studyNoteRepository.find({
+    if (filters?.keyword) {
+      const sanitized = filters.keyword
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_');
+      where.title = Like(`%${sanitized}%`);
+    }
+
+    const page = filters?.page || 1;
+    const pageSize = filters?.pageSize || 20;
+
+    const [records, total] = await this.studyNoteRepository.findAndCount({
       where,
       order: { updatedAt: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
+
+    return {
+      records,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
+    };
   }
 
-  async findOne(id: number): Promise<StudyNote | null> {
-    return this.studyNoteRepository.findOne({ where: { id } });
+  async findOne(id: number, userId?: number): Promise<StudyNote | null> {
+    const where: any = { id };
+    // If userId is provided, only return the note if the user owns it OR it is public
+    if (userId) {
+      // Use a query builder for OR condition
+      return this.studyNoteRepository
+        .createQueryBuilder('note')
+        .where('note.id = :id', { id })
+        .andWhere('(note.userId = :userId OR note.isPublic = :isPublic)', { userId, isPublic: true })
+        .getOne();
+    }
+    // Without userId, only return public notes
+    where.isPublic = true;
+    return this.studyNoteRepository.findOne({ where });
   }
 
   async update(id: number, userId: number, data: Partial<{
@@ -80,7 +118,7 @@ export class StudyNotesService {
 
   async findByLesson(lessonId: number): Promise<StudyNote[]> {
     return this.studyNoteRepository.find({
-      where: { lessonId },
+      where: { lessonId, isPublic: true },
       order: { updatedAt: 'DESC' },
     });
   }

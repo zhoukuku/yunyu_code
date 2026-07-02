@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, Form, Input, InputNumber, DatePicker, Button, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { createHomework } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 
 const { TextArea } = Input;
 
@@ -15,7 +16,7 @@ export default function CreateHomeworkPage() {
       const values = await form.validateFields();
       setLoading(true);
 
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const user = safeGetJSON('user', {});
       const data = {
         ...values,
         teacherId: user.id,

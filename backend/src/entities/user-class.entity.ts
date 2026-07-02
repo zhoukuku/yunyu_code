@@ -13,6 +13,7 @@ import { ClassEntity } from './class.entity';
 @Entity('user_classes')
 @Index(['userId'])
 @Index(['classId'])
+@Index(['status'])
 export class UserClass {
   @PrimaryGeneratedColumn()
   id: number;

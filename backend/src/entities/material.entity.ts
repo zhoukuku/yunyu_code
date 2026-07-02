@@ -25,7 +25,7 @@ export class Material {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column()
+  @Column({ name: 'user_id' })
   userId: number;
 
   @Column({ type: 'varchar', length: 50 })

@@ -19,6 +19,8 @@ export class HomeworkService {
     classId?: number;
     teacherId?: number;
     status?: number;
+    page?: number;
+    pageSize?: number;
   }) {
     const query = this.homeworkRepository.createQueryBuilder('homework');
 
@@ -37,10 +39,17 @@ export class HomeworkService {
 
     query.orderBy('homework.createdAt', 'DESC');
 
-    const homeworks = await query.getMany();
+    const page = filters?.page || 1;
+    const pageSize = filters?.pageSize || 20;
+    query.skip((page - 1) * pageSize).take(pageSize);
+
+    const [homeworks, total] = await query.getManyAndCount();
     return {
       records: homeworks,
-      total: homeworks.length,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
     };
   }
 
@@ -69,6 +78,8 @@ export class HomeworkService {
     homeworkId?: number;
     studentId?: number;
     status?: number;
+    page?: number;
+    pageSize?: number;
   }) {
     const query = this.submissionRepository.createQueryBuilder('submission');
 
@@ -84,10 +95,17 @@ export class HomeworkService {
 
     query.orderBy('submission.submittedAt', 'DESC');
 
-    const submissions = await query.getMany();
+    const page = filters?.page || 1;
+    const pageSize = filters?.pageSize || 20;
+    query.skip((page - 1) * pageSize).take(pageSize);
+
+    const [submissions, total] = await query.getManyAndCount();
     return {
       records: submissions,
-      total: submissions.length,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
     };
   }
 
@@ -140,22 +158,21 @@ export class HomeworkService {
   // ============ Stats ============
 
   async getHomeworkStats(homeworkId: number) {
-    const submissions = await this.submissionRepository.find({
-      where: { homeworkId },
-    });
+    // Use SQL aggregation to avoid loading all rows into memory
+    const stats = await this.submissionRepository
+      .createQueryBuilder('submission')
+      .select('COUNT(*)', 'total')
+      .addSelect('SUM(CASE WHEN submission.status >= 1 THEN 1 ELSE 0 END)', 'submitted')
+      .addSelect('SUM(CASE WHEN submission.status = 2 THEN 1 ELSE 0 END)', 'graded')
+      .addSelect('AVG(CASE WHEN submission.status = 2 THEN submission.score ELSE NULL END)', 'avgScore')
+      .where('submission.homeworkId = :homeworkId', { homeworkId })
+      .getRawOne();
 
-    const total = submissions.length;
-    const submitted = submissions.filter(s => s.status >= 1).length;
-    const graded = submissions.filter(s => s.status === 2).length;
-    const avgScore = graded > 0
-      ? submissions.filter(s => s.status === 2).reduce((sum, s) => sum + (s.score || 0), 0) / graded
-      : 0;
+    const total = parseInt(stats.total, 10) || 0;
+    const submitted = parseInt(stats.submitted, 10) || 0;
+    const graded = parseInt(stats.graded, 10) || 0;
+    const avgScore = stats.avgScore ? Math.round(parseFloat(stats.avgScore) * 100) / 100 : 0;
 
-    return {
-      total,
-      submitted,
-      graded,
-      avgScore: Math.round(avgScore * 100) / 100,
-    };
+    return { total, submitted, graded, avgScore };
   }
 }

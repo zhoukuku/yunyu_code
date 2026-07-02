@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Form, Input, Button, message, Card } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { login as loginApi } from '../../services/api';
+import { safeSetItem, safeSetJSON } from '../../utils/storage';
 
 /* ============================================================
    loginEnhanced — 全面改进登录页
@@ -14,12 +15,19 @@ export default function LoginPage() {
   const [loginStatus, setLoginStatus] = useState('idle'); // idle | loading | success | error
   const [form] = Form.useForm();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const rawRedirect = searchParams.get('redirect');
+  // 防止开放重定向：仅接受相对路径
+  const redirectTo = (rawRedirect && rawRedirect.startsWith('/') && !rawRedirect.startsWith('//'))
+    ? rawRedirect
+    : '/';
   const [focusedField, setFocusedField] = useState(null);
   const [errorFields, setErrorFields] = useState({});
   const containerRef = useRef(null);
   const mouseRef = useRef({ x: 0.5, y: 0.5 });
   const particlesRef = useRef([]);
   const rafRef = useRef(null);
+  const redirectTimerRef = useRef(null);
 
   /* ---- 粒子系统 ---- */
   const initParticles = useCallback(() => {
@@ -115,9 +123,9 @@ export default function LoginPage() {
         90%  { transform: translateX(3px); }
       }
       @keyframes successPulse {
-        0%   { box-shadow: 0 0 0 0 rgba(82,196,26,0.5); }
-        50%  { box-shadow: 0 0 0 16px rgba(82,196,26,0); }
-        100% { box-shadow: 0 0 0 0 rgba(82,196,26,0); }
+        0%   { box-shadow: 0 0 0 0 rgba(102,126,234,0.5); }
+        50%  { box-shadow: 0 0 0 16px rgba(102,126,234,0); }
+        100% { box-shadow: 0 0 0 0 rgba(102,126,234,0); }
       }
       @keyframes errorShake {
         0%, 100% { transform: translateX(0); }
@@ -183,7 +191,7 @@ export default function LoginPage() {
         width: 600px;
         height: 600px;
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(82,196,26,0.08) 0%, rgba(82,196,26,0) 70%);
+        background: radial-gradient(circle, rgba(102,126,234,0.08) 0%, rgba(102,126,234,0) 70%);
         transform: translate(-50%, -50%);
         pointer-events: none;
         z-index: 0;
@@ -200,7 +208,7 @@ export default function LoginPage() {
       }
       .bg-sphere-1 {
         width: 500px; height: 500px;
-        background: radial-gradient(circle, rgba(82,196,26,0.15), transparent 70%);
+        background: radial-gradient(circle, rgba(102,126,234,0.15), transparent 70%);
         top: -150px; left: -100px;
         animation: float 10s ease-in-out infinite;
       }
@@ -251,7 +259,7 @@ export default function LoginPage() {
         content: '';
         position: absolute;
         inset: 0;
-        background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(82,196,26,0.05) 100%);
+        background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(102,126,234,0.05) 100%);
         pointer-events: none;
         border-radius: inherit;
       }
@@ -265,10 +273,10 @@ export default function LoginPage() {
       .login-logo {
         width: 80px; height: 80px;
         border-radius: 22px;
-        background: linear-gradient(135deg, #52c41a 0%, #237804 50%, #389e0d 100%);
+        background: linear-gradient(135deg, #667eea 0%, #4c51bf 50%, #5a6fd6 100%);
         display: flex; align-items: center; justify-content: center;
         margin: 0 auto 24px;
-        box-shadow: 0 12px 32px rgba(82,196,26,0.45), 0 0 60px rgba(82,196,26,0.2);
+        box-shadow: 0 12px 32px rgba(102,126,234,0.45), 0 0 60px rgba(102,126,234,0.2);
         position: relative;
         transform: translateZ(20px);
       }
@@ -277,7 +285,7 @@ export default function LoginPage() {
         position: absolute;
         inset: -4px;
         border-radius: 26px;
-        background: linear-gradient(135deg, rgba(82,196,26,0.4), transparent);
+        background: linear-gradient(135deg, rgba(102,126,234,0.4), transparent);
         z-index: -1;
         animation: glowPulse 2.5s ease-in-out infinite;
       }
@@ -286,7 +294,7 @@ export default function LoginPage() {
       .login-title {
         font-size: 30px;
         font-weight: 800;
-        background: linear-gradient(135deg, #52c41a 0%, #b7eb8f 40%, #389e0d 70%, #d9f7be 100%);
+        background: linear-gradient(135deg, #667eea 0%, #c4c9f8 40%, #5a6fd6 70%, #e0e3ff 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -320,13 +328,13 @@ export default function LoginPage() {
         padding: 4px 12px;
       }
       .login-input-wrapper:hover {
-        border-color: rgba(82,196,26,0.4);
+        border-color: rgba(102,126,234,0.4);
         background: rgba(255,255,255,0.08);
       }
       .login-input-wrapper:focus-within {
-        border-color: #52c41a;
-        background: rgba(82,196,26,0.06);
-        box-shadow: 0 0 0 4px rgba(82,196,26,0.12), 0 4px 20px rgba(82,196,26,0.15);
+        border-color: #667eea;
+        background: rgba(102,126,234,0.06);
+        box-shadow: 0 0 0 4px rgba(102,126,234,0.12), 0 4px 20px rgba(102,126,234,0.15);
         transform: translateY(-1px);
       }
       .login-input-wrapper.error {
@@ -352,7 +360,7 @@ export default function LoginPage() {
         top: 6px;
         transform: translateY(0);
         font-size: 11px;
-        color: #52c41a;
+        color: #667eea;
         font-weight: 600;
         left: 12px;
         background: rgba(26,26,46,0.9);
@@ -366,7 +374,7 @@ export default function LoginPage() {
         font-size: 18px !important;
       }
       .login-input-wrapper:focus-within .input-icon {
-        color: #52c41a;
+        color: #667eea;
         transform: scale(1.2);
       }
       .login-input-wrapper .ant-input {
@@ -404,9 +412,9 @@ export default function LoginPage() {
         font-size: 17px !important;
         font-weight: 700 !important;
         letter-spacing: 4px;
-        background: linear-gradient(135deg, #52c41a 0%, #237804 100%) !important;
+        background: linear-gradient(135deg, #667eea 0%, #4c51bf 100%) !important;
         border: none !important;
-        box-shadow: 0 6px 24px rgba(82,196,26,0.4) !important;
+        box-shadow: 0 6px 24px rgba(102,126,234,0.4) !important;
         overflow: hidden;
         transition: all 0.3s cubic-bezier(0.4,0,0.2,1) !important;
         transform-style: preserve-3d;
@@ -422,18 +430,18 @@ export default function LoginPage() {
       .login-btn:hover::before { left: 100%; }
       .login-btn:hover {
         transform: translateY(-3px) translateZ(5px) !important;
-        box-shadow: 0 12px 36px rgba(82,196,26,0.55) !important;
+        box-shadow: 0 12px 36px rgba(102,126,234,0.55) !important;
       }
       .login-btn:active {
         transform: translateY(0) translateZ(0) scale(0.98) !important;
       }
       .login-btn.loading {
         pointer-events: none;
-        background: linear-gradient(135deg, #389e0d 0%, #237804 100%) !important;
+        background: linear-gradient(135deg, #5a6fd6 0%, #4c51bf 100%) !important;
       }
       .login-btn.success {
         animation: successPulse 0.8s ease forwards !important;
-        background: linear-gradient(135deg, #52c41a 0%, #389e0d 100%) !important;
+        background: linear-gradient(135deg, #667eea 0%, #5a6fd6 100%) !important;
       }
 
       /* ---- 加载指示器 ---- */
@@ -464,7 +472,7 @@ export default function LoginPage() {
       .success-overlay {
         position: absolute;
         inset: 0;
-        background: rgba(82,196,26,0.1);
+        background: rgba(102,126,234,0.1);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -477,12 +485,12 @@ export default function LoginPage() {
         animation: successPulse 1s ease infinite;
       }
       .success-checkmark circle {
-        fill: rgba(82,196,26,0.2);
-        stroke: #52c41a;
+        fill: rgba(102,126,234,0.2);
+        stroke: #667eea;
         stroke-width: 2;
       }
       .success-checkmark path {
-        stroke: #52c41a;
+        stroke: #667eea;
         stroke-width: 3;
         stroke-linecap: round;
         stroke-linejoin: round;
@@ -505,7 +513,7 @@ export default function LoginPage() {
       .deco-bar {
         height: 3px;
         border-radius: 2px;
-        background: linear-gradient(90deg, transparent, #52c41a, transparent);
+        background: linear-gradient(90deg, transparent, #667eea, transparent);
         animation: glowPulse 2.5s ease-in-out infinite;
       }
       .deco-dot {
@@ -543,35 +551,94 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await loginApi(values.account, values.password);
-      if (res.status === 200 && res.result?.accessToken) {
+      if (res && res.status === 200 && res.result?.accessToken) {
         setLoginStatus('success');
-        localStorage.setItem('accessToken', res.result.accessToken);
-        localStorage.setItem('user', JSON.stringify(res.result.user));
+        safeSetItem('accessToken', res.result.accessToken);
+        safeSetJSON('user', res.result.user);
         message.success({ content: '登录成功，正在跳转…', style: { marginTop: 80 } });
-        setTimeout(() => navigate('/'), 1000);
+
+        // Role-based redirect: admin → /admin, teacher → /teaching,
+        // parent → /parental-report, student → redirect param or /
+        const role = res.result.user?.role;
+        let targetPath = redirectTo;
+        if (role === 1) {
+          targetPath = '/admin';
+        } else if (role === 2) {
+          targetPath = '/teaching';
+        } else if (role === 4) {
+          targetPath = '/parental-report';
+        }
+        // role 3 (student) or unknown: keep redirectTo (respect ?redirect= query param)
+
+        redirectTimerRef.current = setTimeout(() => {
+          navigate(targetPath, { replace: true });
+        }, 1000);
       } else {
+        // Server responded but login was not successful (e.g. wrong credentials)
         setLoginStatus('error');
-        message.error(res.result?.msg || '登录失败');
+        if (res?.status === 401) {
+          message.error('账号或密码错误');
+        } else if (res?.status === 403) {
+          message.error('账号已被禁用，请联系管理员');
+        } else {
+          message.error(res?.result?.msg || res?.msg || '登录失败');
+        }
         setTimeout(() => setLoginStatus('idle'), 2000);
       }
     } catch (e) {
       setLoginStatus('error');
-      message.error(e.message || '登录失败');
+      if (e.code === 'ECONNABORTED' || (e.message && e.message.includes('timeout'))) {
+        message.error('请求超时，请检查网络后重试');
+      } else if (e.response) {
+        const status = e.response.status;
+        if (status === 401) {
+          message.error('账号或密码错误');
+        } else if (status === 403) {
+          message.error('账号已被禁用，请联系管理员');
+        } else {
+          const msg = e.response.data?.msg || e.response.data?.result?.msg;
+          message.error(msg || `请求失败 (${status})`);
+        }
+      } else if (e.request) {
+        message.error('网络连接失败，请检查网络');
+      } else {
+        message.error(e.message || '登录失败');
+      }
       setTimeout(() => setLoginStatus('idle'), 2000);
     } finally {
       setLoading(false);
     }
   };
 
+  /* ---- 验证失败回调（确保空字段也能触发错误展示） ---- */
+  const onFinishFailed = ({ errorFields: errFields }) => {
+    const errors = {};
+    errFields.forEach((field) => {
+      if (field.errors && field.errors.length > 0) {
+        errors[field.name[0]] = field.errors[0];
+      }
+    });
+    setErrorFields(errors);
+  };
+
   const handleFieldsChange = (_, allFields) => {
     const errors = {};
-    allFields.forEach(field => {
+    allFields.forEach((field) => {
       if (field.errors && field.errors.length > 0) {
         errors[field.name] = field.errors[0];
       }
     });
     setErrorFields(errors);
   };
+
+  /* ---- 清理重定向定时器 ---- */
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, []);
 
   const glowStyle = {
     left: `${mouseRef.current.x * 100}%`,
@@ -640,6 +707,7 @@ export default function LoginPage() {
             <Form
               form={form}
               onFinish={onFinish}
+              onFinishFailed={onFinishFailed}
               size="large"
               layout="vertical"
               onFieldsChange={handleFieldsChange}
@@ -647,9 +715,10 @@ export default function LoginPage() {
               {/* 账号 */}
               <Form.Item
                 name="account"
-                rules={[{ required: true, message: ' ' }]}
+                rules={[{ required: true, message: '请输入账号' }]}
                 style={{ marginBottom: errorFields.account ? 30 : 24 }}
                 className="login-form-item"
+                help=""
               >
                 <div className={`login-input-wrapper ${errorFields.account ? 'error' : ''}`}>
                   <span className={`floating-label ${focusedField === 'account' || form.getFieldValue('account') ? 'active' : ''} ${errorFields.account ? 'error' : ''}`}>
@@ -675,9 +744,10 @@ export default function LoginPage() {
               {/* 密码 */}
               <Form.Item
                 name="password"
-                rules={[{ required: true, message: ' ' }]}
+                rules={[{ required: true, message: '请输入密码' }]}
                 style={{ marginBottom: errorFields.password ? 30 : 24 }}
                 className="login-form-item"
+                help=""
               >
                 <div className={`login-input-wrapper ${errorFields.password ? 'error' : ''}`}>
                   <span className={`floating-label ${focusedField === 'password' || form.getFieldValue('password') ? 'active' : ''} ${errorFields.password ? 'error' : ''}`}>

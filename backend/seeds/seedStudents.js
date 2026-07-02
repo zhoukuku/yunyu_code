@@ -1,5 +1,4 @@
 const { DataSource } = require('typeorm');
-const bcrypt = require('bcrypt');
 
 const AppDataSource = new DataSource({
   type: 'sqlite',
@@ -8,10 +7,6 @@ const AppDataSource = new DataSource({
   synchronize: false,
   logging: false,
 });
-
-async function hashPassword(password) {
-  return bcrypt.hash(password, 10);
-}
 
 async function seed() {
   await AppDataSource.initialize();
@@ -102,7 +97,7 @@ async function seed() {
   console.log('Cleared existing students records');
 
   // Create 50 student accounts (student001 - student050)
-  const password = await hashPassword('123456');
+  const password = '123456';
   const userValues = [];
   const studentValues = [];
 

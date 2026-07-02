@@ -58,7 +58,7 @@
 
   .ppt-card {
     .page-indicator {
-      color: #666;
+      color: var(--color-text-tertiary, #6b7280);
       font-size: 14px;
       display: flex;
       align-items: center;
@@ -74,10 +74,10 @@
       align-items: center;
       justify-content: center;
       height: 300px;
-      color: #999;
+      color: var(--color-text-muted, #9ca3af);
 
       .ppt-placeholder-icon {
-        color: #d9d9d9;
+        color: var(--color-border, #e5e7eb);
         margin-bottom: 16px;
       }
 
@@ -90,7 +90,7 @@
     .ppt-iframe-wrapper {
       width: 100%;
       height: 600px;
-      background: #f5f5f5;
+      background: var(--color-bg-secondary, #f3f4f6);
       border-radius: 8px;
       overflow: hidden;
 
@@ -107,7 +107,7 @@
         justify-content: center;
         align-items: center;
         min-height: 400px;
-        background: #fafafa;
+        background: var(--color-bg, #f9fafb);
         border-radius: 8px;
       }
 
@@ -136,7 +136,7 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            color: #999;
+            color: var(--color-text-muted, #9ca3af);
             font-size: 14px;
           }
         }
@@ -146,7 +146,7 @@
         bottom: -30px;
 
         li button {
-          background: #d9d9d9;
+          background: var(--color-border, #e5e7eb);
           border-radius: 50%;
 
           &::before {
@@ -155,7 +155,7 @@
         }
 
         li.slick-active button {
-          background: #1890ff;
+          background: var(--color-primary, #667eea);
         }
       }
     }
@@ -171,7 +171,7 @@
 
     .ppt-keyboard-hint {
       text-align: center;
-      color: #999;
+      color: var(--color-text-muted, #9ca3af);
       font-size: 12px;
       margin-top: 8px;
       padding-bottom: 8px;

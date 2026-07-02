@@ -1,0 +1,5 @@
+{
+  "name": "scratch-full-replication",
+  "description": "Agent team workflow to 1:1 replicate scratch.5aqima.com - continuous loop until all features complete",
+  "phases": ["PM Review", "Worker1 Develop", "Worker2 Test", "Loop until done"]
+}

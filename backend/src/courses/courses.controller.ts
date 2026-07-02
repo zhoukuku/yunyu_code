@@ -1,8 +1,13 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query, Req, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CoursesService } from './courses.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { CreateCourseDto } from './dto/create-course.dto';
+import { UpdateCourseDto } from './dto/update-course.dto';
+import { CreateLessonDto } from './dto/create-lesson.dto';
+import { UpdateLessonDto } from './dto/update-lesson.dto';
+import { CreateHierarchyDto } from './dto/create-hierarchy.dto';
 
 @Controller()
 export class CoursesController {
@@ -33,10 +38,12 @@ export class CoursesController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
+    const parsedPage = page ? parseInt(page, 10) : NaN;
+    const parsedPageSize = pageSize ? parseInt(pageSize, 10) : NaN;
     const result = await this.coursesService.getCoursesByCategory(
       id,
-      page ? parseInt(page, 10) : 1,
-      pageSize ? parseInt(pageSize, 10) : 20,
+      isNaN(parsedPage) ? 1 : parsedPage,
+      isNaN(parsedPageSize) ? 20 : parsedPageSize,
     );
     return { status: 200, result };
   }
@@ -53,13 +60,17 @@ export class CoursesController {
     @Query('sortBy') sortBy?: string,
     @Query('sortOrder') sortOrder?: 'ASC' | 'DESC',
   ) {
+    const parsedDifficulty = difficulty ? parseInt(difficulty, 10) : NaN;
+    const parsedStatus = status !== undefined && status !== '' ? parseInt(status, 10) : NaN;
+    const parsedPage = page ? parseInt(page, 10) : NaN;
+    const parsedPageSize = pageSize ? parseInt(pageSize, 10) : NaN;
     const filters = {
-      difficulty: difficulty ? parseInt(difficulty, 10) : undefined,
-      status: status !== undefined ? parseInt(status, 10) : undefined,
+      difficulty: isNaN(parsedDifficulty) ? undefined : parsedDifficulty,
+      status: isNaN(parsedStatus) ? undefined : parsedStatus,
       teacher,
       search,
-      page: page ? parseInt(page, 10) : undefined,
-      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      page: isNaN(parsedPage) ? undefined : parsedPage,
+      pageSize: isNaN(parsedPageSize) ? undefined : parsedPageSize,
       sortBy,
       sortOrder,
     };
@@ -84,12 +95,6 @@ export class CoursesController {
   async getHotSearchTerms() {
     const hotTerms = await this.coursesService.getHotSearchTerms();
     return { status: 200, result: hotTerms };
-  }
-
-  @Get('courses/:id')
-  async getCourse(@Param('id') id: string) {
-    const course = await this.coursesService.getCourse(+id);
-    return { status: 200, result: course };
   }
 
   @Get('courses/:id/lessons')
@@ -133,47 +138,33 @@ export class CoursesController {
     return { status: 200, result: { favorited: isFavorited } };
   }
 
+  // Wildcard :id route placed after all specific single-segment routes
+  @Get('courses/:id')
+  async getCourse(@Param('id') id: string) {
+    const course = await this.coursesService.getCourse(+id);
+    return { status: 200, result: course };
+  }
+
   @Get('courses/:courseId/lessons/:lessonId')
   async getLesson(@Param('courseId') courseId: string, @Param('lessonId') lessonId: string) {
     const lesson = await this.coursesService.getLesson(+courseId, +lessonId);
     return { status: 200, result: lesson };
   }
 
-  @Get('notice')
-  @UseGuards(AuthGuard('jwt'))
-  async getNotices(
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-    @Query('noticeType') noticeType?: string,
-  ) {
-    const filters = {
-      page: page ? parseInt(page, 10) : undefined,
-      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
-      noticeType,
-    };
-    const notices = await this.coursesService.getNotices(filters);
-    return { status: 200, result: notices };
-  }
-
-  @Get('notice/popup')
-  async getNoticePopup() {
-    const notices = await this.coursesService.getNoticePopup();
-    return { status: 200, result: notices };
-  }
-
+  // ============ Course Management (Admin) ============
   @Post('courses')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
-  async createCourse(@Body() data: any) {
-    const course = await this.coursesService.createCourse(data);
+  async createCourse(@Body() dto: CreateCourseDto) {
+    const course = await this.coursesService.createCourse(dto);
     return { status: 200, result: course };
   }
 
   @Put('courses/:id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
-  async updateCourse(@Param('id') id: string, @Body() data: any) {
-    const course = await this.coursesService.updateCourse(+id, data);
+  async updateCourse(@Param('id') id: string, @Body() dto: UpdateCourseDto) {
+    const course = await this.coursesService.updateCourse(+id, dto);
     return { status: 200, result: course };
   }
 
@@ -196,16 +187,16 @@ export class CoursesController {
   @Post('courses/:courseId/lessons')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
-  async createLesson(@Param('courseId') courseId: string, @Body() data: any) {
-    const lesson = await this.coursesService.createLesson({ ...data, courseId: +courseId });
+  async createLesson(@Param('courseId') courseId: string, @Body() dto: CreateLessonDto) {
+    const lesson = await this.coursesService.createLesson({ ...dto, courseId: +courseId });
     return { status: 200, result: lesson };
   }
 
   @Put('courses/:courseId/lessons/:id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
-  async updateLesson(@Param('id') id: string, @Body() data: any) {
-    const lesson = await this.coursesService.updateLesson(+id, data);
+  async updateLesson(@Param('id') id: string, @Body() dto: UpdateLessonDto) {
+    const lesson = await this.coursesService.updateLesson(+id, dto);
     return { status: 200, result: lesson };
   }
 
@@ -220,39 +211,9 @@ export class CoursesController {
   @Post('dict/hierarchy')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(1)
-  async createHierarchy(@Body() data: any) {
-    const hierarchy = await this.coursesService.createHierarchy(data);
+  async createHierarchy(@Body() dto: CreateHierarchyDto) {
+    const hierarchy = await this.coursesService.createHierarchy(dto);
     return { status: 200, result: hierarchy };
   }
 
-  @Post('notice')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(1)
-  async createNotice(@Body() data: any) {
-    const notice = await this.coursesService.createNotice(data);
-    return { status: 200, result: notice };
-  }
-
-  @Put('notice/:id')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(1)
-  async updateNotice(@Param('id') id: string, @Body() data: any) {
-    const notice = await this.coursesService.updateNotice(+id, data);
-    return { status: 200, result: notice };
-  }
-
-  @Delete('notice/:id')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(1)
-  async deleteNotice(@Param('id') id: string) {
-    const result = await this.coursesService.deleteNotice(+id);
-    return { status: 200, result };
-  }
-
-  @Put('notice/:id/read')
-  @UseGuards(AuthGuard('jwt'))
-  async markNoticeAsRead(@Param('id') id: string, @Req() req: any) {
-    await this.coursesService.markNoticeAsRead(+id, req.user.sub);
-    return { status: 200, result: { success: true } };
-  }
 }

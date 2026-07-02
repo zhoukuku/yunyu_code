@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
-import { Layout, Menu, Avatar, Dropdown, Badge, message, Input, Drawer } from 'antd';
+import { useState, useEffect, useRef } from 'react';
+import { Layout, Menu, Avatar, Dropdown, Badge, message, Input, Drawer, Button, Breadcrumb } from 'antd';
 import {
   BellOutlined, UserOutlined, LogoutOutlined, HomeOutlined, BookOutlined,
   TeamOutlined, CompassOutlined, TrophyOutlined, RocketOutlined,
   SearchOutlined, FileTextOutlined, FolderOutlined, MenuOutlined, CloseOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getUnreadNoticeCount, globalSearch } from '../services/api';
+import { getUnreadNoticeCount } from '../services/api';
+import { safeClear, safeGetJSON } from '../utils/storage';
 
 const { Header: AntHeader } = Layout;
 
@@ -17,30 +18,44 @@ export default function Header() {
   const [notificationCount, setNotificationCount] = useState(0);
   const [searchValue, setSearchValue] = useState('');
   const [mobileMenuVisible, setMobileMenuVisible] = useState(false);
+  const [fetchStatus, setFetchStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
+  const lastKnownCount = useRef(0);
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      const parsedUser = JSON.parse(userStr);
+    const controller = new AbortController();
+    const parsedUser = safeGetJSON('user');
+    if (parsedUser) {
       setUser(parsedUser);
-      fetchUnreadCount(parsedUser.id);
-    }
-  }, []);
-
-  const fetchUnreadCount = async (userId) => {
-    try {
-      const res = await getUnreadNoticeCount(userId);
-      if (res.status === 200 && res.result) {
-        setNotificationCount(res.result.count || 0);
+      if (parsedUser.id) {
+        setFetchStatus('loading');
+        const fetchUnreadCount = async (userId, signal) => {
+          if (!userId) return;
+          try {
+            const res = await getUnreadNoticeCount({ signal });
+            if (signal?.aborted) return;
+            if (res && res.status === 200 && res.result != null) {
+              const count = typeof res.result === 'object' ? (res.result.count ?? 0) : (Number.isFinite(res.result) ? res.result : 0);
+              setNotificationCount(count);
+              lastKnownCount.current = count;
+              setFetchStatus('success');
+            }
+          } catch (error) {
+            if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return;
+            console.error('Failed to fetch unread count:', error);
+            setFetchStatus('error');
+            // Keep last known count instead of resetting to 0
+            setNotificationCount(lastKnownCount.current);
+          }
+        };
+        fetchUnreadCount(parsedUser.id, controller.signal);
       }
-    } catch (error) {
-      console.error('Failed to fetch unread count:', error);
     }
-  };
+    return () => controller.abort();
+  }, [location.pathname]);
 
   const handleLogout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('user');
+    safeClear();
+    setMobileMenuVisible(false);
     message.success('已退出登录');
     navigate('/login');
   };
@@ -72,8 +87,67 @@ export default function Header() {
     { key: '/create', icon: <RocketOutlined />, label: '去创作' },
   ];
 
-  // 计算当前选中的菜单key
-  const selectedKey = '/' + (location.pathname.split('/')[1] || '');
+  // 计算当前选中的菜单key —— 将路由首段映射到菜单key
+  // 例如 /course-detail/123 和 /courses/123/lessons/456 都应高亮 "课程中心" (/course)
+  const PATH_TO_MENU_KEY = {
+    course: '/course',
+    'course-detail': '/course',
+    courses: '/course',
+    teaching: '/teaching',
+    community: '/community',
+    competition: '/competition',
+    homework: '/homework',
+    materials: '/materials',
+    create: '/create',
+  };
+  const firstSegment = location.pathname.split('/')[1] || '';
+  const selectedKey = firstSegment ? (PATH_TO_MENU_KEY[firstSegment] || `/${firstSegment}`) : '/';
+
+  // Breadcrumb route mapping
+  const getBreadcrumbItems = (pathname) => {
+    const items = [{ title: '首页', path: '/' }];
+    const segments = pathname.split('/').filter(Boolean);
+
+    if (segments.length === 0) return items;
+
+    const first = segments[0];
+
+    switch (first) {
+      case 'course':
+        items.push({ title: '课程中心', path: '/course' });
+        break;
+      case 'course-detail':
+        items.push({ title: '课程中心', path: '/course' });
+        items.push({ title: '课程详情' });
+        break;
+      case 'create': {
+        const sub = segments[1];
+        if (sub === 'scratch') {
+          items.push({ title: 'Scratch IDE' });
+        } else if (sub === 'python') {
+          items.push({ title: 'Python编辑器' });
+        } else {
+          items.push({ title: '去创作', path: '/create' });
+        }
+        break;
+      }
+      case 'settings':
+        items.push({ title: '个人设置' });
+        break;
+      case 'admin':
+        items.push({ title: '管理后台' });
+        break;
+      default:
+        break;
+    }
+
+    return items;
+  };
+
+  const breadcrumbRoute = getBreadcrumbItems(location.pathname);
+  const breadcrumbItems = breadcrumbRoute.map((item) => ({
+    title: item.path ? <a onClick={() => navigate(item.path)}>{item.title}</a> : item.title,
+  }));
 
   return (
     <>
@@ -172,12 +246,21 @@ export default function Header() {
             帮助
           </a>
 
-          <Badge count={notificationCount} size="small" offset={[-2, 2]}>
-            <BellOutlined
-              style={{ fontSize: 18, cursor: 'pointer', color: '#666' }}
-              onClick={() => navigate('/notifications')}
-            />
-          </Badge>
+          {fetchStatus === 'error' && lastKnownCount.current === 0 ? (
+            <Badge dot color="orange" offset={[-2, 2]}>
+              <BellOutlined
+                style={{ fontSize: 18, cursor: 'pointer', color: '#666' }}
+                onClick={() => navigate('/notifications')}
+              />
+            </Badge>
+          ) : (
+            <Badge count={notificationCount} size="small" offset={[-2, 2]}>
+              <BellOutlined
+                style={{ fontSize: 18, cursor: 'pointer', color: '#666' }}
+                onClick={() => navigate('/notifications')}
+              />
+            </Badge>
+          )}
 
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
             <div
@@ -218,6 +301,19 @@ export default function Header() {
         </div>
       </AntHeader>
 
+      {/* Breadcrumb导航 - 仅登录后显示 */}
+      {user && (
+        <div
+          style={{
+            background: '#fafafa',
+            padding: '10px 24px',
+            borderBottom: '1px solid #f0f0f0',
+          }}
+        >
+          <Breadcrumb items={breadcrumbItems} />
+        </div>
+      )}
+
       {/* 移动端抽屉菜单 */}
       <Drawer
         title={
@@ -238,7 +334,7 @@ export default function Header() {
         width={300}
         styles={{
           header: { borderBottom: '1px solid #f0f0f0', padding: '16px 20px' },
-          body: { padding: 0 },
+          body: { padding: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' },
         }}
       >
         {/* 用户信息 */}
@@ -285,17 +381,14 @@ export default function Header() {
             setMobileMenuVisible(false);
           }}
           items={mainMenuItems}
-          style={{ border: 'none' }}
+          style={{ border: 'none', flex: 1, overflowY: 'auto' }}
         />
 
         {/* 底部操作 */}
         <div style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
           padding: 16,
           borderTop: '1px solid #f0f0f0',
+          flexShrink: 0,
         }}>
           <div style={{ display: 'flex', gap: 12 }}>
             <Button

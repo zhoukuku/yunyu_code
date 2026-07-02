@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Row, Col, Progress, Table, Tag, Button, message, Empty, Statistic, Badge } from 'antd';
 import {
   BookOutlined,
@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getLearningStats, getCourseProgress, getLearningHistory, markLessonCompleted, getAchievements, getAchievementStats, exportProgress } from '../../services/api';
+import { safeGetItem } from '../../utils/storage';
 
 export default function ProgressPage() {
   const navigate = useNavigate();
@@ -24,20 +25,13 @@ export default function ProgressPage() {
   const [achievements, setAchievements] = useState([]);
   const [achievementStats, setAchievementStats] = useState({ total: 0, unlocked: 0, locked: 0 });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [completingId, setCompletingId] = useState(null);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      window.location.href = '/login';
-      return;
-    }
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
+    setError(false);
     try {
       const [statsRes, coursesRes, historyRes, achievementsRes, achievementStatsRes] = await Promise.all([
         getLearningStats(),
@@ -53,11 +47,21 @@ export default function ProgressPage() {
       if (achievementsRes.status === 200) setAchievements(achievementsRes.result || []);
       if (achievementStatsRes.status === 200) setAchievementStats(achievementStatsRes.result || { total: 0, unlocked: 0, locked: 0 });
     } catch (e) {
+      setError(true);
       message.error('加载学习进度失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const token = safeGetItem('accessToken');
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
+    loadData();
+  }, [loadData]);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '-';
@@ -72,7 +76,7 @@ export default function ProgressPage() {
   };
 
   const formatTime = (minutes) => {
-    if (!minutes && minutes !== 0) return '0分钟';
+    if (minutes == null || isNaN(minutes)) return '-';
     if (minutes < 60) return `${minutes}分钟`;
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
@@ -80,7 +84,7 @@ export default function ProgressPage() {
   };
 
   const formatVideoTime = (seconds) => {
-    if (!seconds && seconds !== 0) return '0分钟';
+    if (seconds == null || isNaN(seconds)) return '-';
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}分钟`;
     const hours = Math.floor(minutes / 60);
@@ -109,7 +113,7 @@ export default function ProgressPage() {
       const response = await exportProgress();
       if (response.status === 200) {
         const dataStr = JSON.stringify(response.result, null, 2);
-        const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+        const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(dataStr)}`;
         const linkElement = document.createElement('a');
         linkElement.setAttribute('href', dataUri);
         linkElement.setAttribute('download', `learning-progress-${new Date().toISOString().split('T')[0]}.json`);
@@ -199,6 +203,15 @@ export default function ProgressPage() {
           导出学习报告
         </Button>
       </div>
+
+      {/* Error state */}
+      {error && !stats && courses.length === 0 && !loading && (
+        <Card style={{ marginBottom: 16 }}>
+          <Empty description="加载失败，请稍后重试">
+            <Button type="primary" onClick={loadData}>重新加载</Button>
+          </Empty>
+        </Card>
+      )}
 
       {/* Overall Progress */}
       <Card style={{ marginBottom: 16 }}>
@@ -354,7 +367,7 @@ export default function ProgressPage() {
                   </div>
                   <div style={{ fontWeight: 'bold', fontSize: 12, marginBottom: 4 }}>{achievement.name}</div>
                   <Progress
-                    percent={Math.round((achievement.progress / achievement.target) * 100)}
+                    percent={achievement.target > 0 ? Math.round((achievement.progress / achievement.target) * 100) : 0}
                     size="small"
                     showInfo={false}
                     status={achievement.unlocked ? 'success' : 'active'}
@@ -478,7 +491,7 @@ export default function ProgressPage() {
           <Table
             columns={historyColumns}
             dataSource={history}
-            rowKey="lessonId"
+            rowKey={(record, index) => `${record.lessonId || index}-${index}`}
             pagination={{ pageSize: 10 }}
           />
         )}

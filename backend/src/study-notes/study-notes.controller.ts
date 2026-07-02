@@ -26,12 +26,21 @@ export class StudyNotesController {
   @Get()
   @UseGuards(AuthGuard('jwt'))
   async findAll(@Query() query: {
-    courseId?: number;
-    lessonId?: number;
+    courseId?: string;
+    lessonId?: string;
     tag?: string;
     keyword?: string;
+    page?: string;
+    pageSize?: string;
   }, @Request() req) {
-    const notes = await this.studyNotesService.findAll(req.user.sub, query);
+    const notes = await this.studyNotesService.findAll(req.user.sub, {
+      courseId: query.courseId ? parseInt(query.courseId, 10) : undefined,
+      lessonId: query.lessonId ? parseInt(query.lessonId, 10) : undefined,
+      tag: query.tag,
+      keyword: query.keyword,
+      page: query.page ? parseInt(query.page, 10) : undefined,
+      pageSize: query.pageSize ? parseInt(query.pageSize, 10) : undefined,
+    });
     return {
       status: 200,
       result: notes,
@@ -51,7 +60,7 @@ export class StudyNotesController {
   @Get(':id')
   @UseGuards(AuthGuard('jwt'))
   async findOne(@Param('id') id: string, @Request() req) {
-    const note = await this.studyNotesService.findOne(parseInt(id, 10));
+    const note = await this.studyNotesService.findOne(parseInt(id, 10), req.user.sub);
     if (!note) {
       return { status: 404, message: 'Note not found' };
     }

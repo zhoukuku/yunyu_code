@@ -1011,8 +1011,8 @@
   }
 
   .welcome-avatar {
-    width: 64px !important;
-    height: 64px !important;
+    width: 64px;
+    height: 64px;
   }
 
   .entry-icon {

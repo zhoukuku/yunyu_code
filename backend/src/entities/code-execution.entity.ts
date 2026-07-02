@@ -57,9 +57,9 @@ export class CodeExecution {
   @CreateDateColumn()
   createdAt: Date;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'userId' })
-  user: User;
+  user: User | null;
 
   @ManyToOne(() => Project, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'projectId' })

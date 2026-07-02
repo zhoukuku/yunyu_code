@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
   Index,
 } from 'typeorm';
@@ -32,17 +33,18 @@ export class Comment {
   @CreateDateColumn()
   createdAt: Date;
 
-  @ManyToOne(() => Post, (post) => post.comments, { onDelete: 'CASCADE' })
-  post: Post;
+  @ManyToOne(() => Post, (post) => post.comments, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'postId' })
+  post: Post | null;
 
-  @ManyToOne(() => Comment, (comment) => comment.replies, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Comment, (comment) => comment.replies, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'parentId' })
   parent: Comment | null;
 
-  @ManyToOne(() => Comment, (comment) => comment.parent)
+  @OneToMany(() => Comment, (comment) => comment.parent)
   replies: Comment[];
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'userId' })
-  user: User;
+  user: User | null;
 }

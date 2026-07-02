@@ -1,12 +1,10 @@
-import { Injectable, UnauthorizedException, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, NotFoundException, Logger, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import { randomInt } from 'crypto';
 import { User } from '../entities/user.entity';
 import { SendResetCodeDto, VerifyResetCodeDto, AdminResetPasswordDto } from './dto/passwordReset.dto';
-
-const SALT_ROUNDS = 12;
 
 // 验证码存储（生产环境应使用 Redis）
 interface VerificationCode {
@@ -16,23 +14,36 @@ interface VerificationCode {
 }
 
 @Injectable()
-export class PasswordResetService {
+export class PasswordResetService implements OnModuleDestroy {
   private readonly logger = new Logger(PasswordResetService.name);
   private readonly CODE_EXPIRY_SECONDS = 5 * 60; // 5分钟
   private readonly MAX_CODE_ATTEMPTS = 5;
   private readonly VERIFICATION_CODES = new Map<string, VerificationCode>();
+  private readonly cleanupInterval: NodeJS.Timeout;
 
   constructor(
     @InjectRepository(User)
     private usersRepository: Repository<User>,
     private jwtService: JwtService,
-  ) {}
+  ) {
+    // 定期清理过期验证码，防止内存泄漏
+    this.cleanupInterval = setInterval(() => {
+      const cleaned = this.cleanupExpiredCodes();
+      if (cleaned > 0) {
+        this.logger.debug(`Cleaned ${cleaned} expired verification codes`);
+      }
+    }, 5 * 60 * 1000); // 每5分钟清理一次
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.cleanupInterval);
+  }
 
   /**
-   * 生成6位数字验证码
+   * 生成6位数字验证码（使用加密安全的随机数生成器）
    */
   private generateCode(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    return randomInt(100000, 999999).toString();
   }
 
   /**
@@ -82,21 +93,15 @@ export class PasswordResetService {
 
     // 实际发送逻辑（这里只是日志，生产环境应接入邮件/短信服务）
     if (type === 'email') {
-      this.logger.log(`[Password Reset] Email verification code for ${user.email}: ${code}`);
+      this.logger.debug(`[Password Reset] Email verification code sent to user: ${user.email}`);
       // TODO: 接入邮件服务发送验证码
     } else {
-      this.logger.log(`[Password Reset] SMS verification code for ${user.phone}: ${code}`);
+      this.logger.debug(`[Password Reset] SMS verification code sent to user: ${user.phone}`);
       // TODO: 接入短信服务发送验证码
     }
 
-    // 开发环境返回验证码以便测试
-    const isDev = process.env.NODE_ENV !== 'production';
-    if (isDev) {
-      this.logger.debug(`[Dev Only] Verification code: ${code}`);
-    }
-
     return {
-      message: isDev ? `验证码已发送${isDev ? `，开发环境验证码: ${code}` : ''}` : '验证码已发送',
+      message: '验证码已发送',
       expiresIn: this.CODE_EXPIRY_SECONDS,
     };
   }
@@ -147,9 +152,16 @@ export class PasswordResetService {
       throw new UnauthorizedException('验证码错误');
     }
 
-    // 验证通过，更新密码
-    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
-    await this.usersRepository.update(user.id, { password: hashedPassword });
+    // 验证新密码复杂度（defense in depth，与注册策略一致）
+    if (!newPassword || newPassword.length < 8) {
+      throw new UnauthorizedException('新密码至少8个字符');
+    }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
+      throw new UnauthorizedException('新密码必须包含大小写字母和数字');
+    }
+
+    // 验证通过，更新密码（明文存储）
+    await this.usersRepository.update(user.id, { password: newPassword });
 
     // 删除已使用的验证码
     this.VERIFICATION_CODES.delete(codeKey);
@@ -181,9 +193,16 @@ export class PasswordResetService {
       throw new ForbiddenException('不能重置自己的密码');
     }
 
-    // 更新密码
-    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
-    await this.usersRepository.update(userId, { password: hashedPassword });
+    // 验证新密码复杂度（defense in depth，与注册策略一致）
+    if (!newPassword || newPassword.length < 8) {
+      throw new UnauthorizedException('新密码至少8个字符');
+    }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
+      throw new UnauthorizedException('新密码必须包含大小写字母和数字');
+    }
+
+    // 更新密码（明文存储）
+    await this.usersRepository.update(userId, { password: newPassword });
 
     this.logger.log(`[Admin Password Reset] Admin ${adminId} reset password for user ${userId}. Reason: ${reason || 'N/A'}`);
 

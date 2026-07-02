@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { FeaturedContent } from '../entities/featured.entity';
 import { Course } from '../entities/course.entity';
 
@@ -24,19 +24,22 @@ export class FeaturedService {
 
     const featuredList = await query.getMany();
 
+    // Batch load related courses to avoid N+1 queries
+    const courseIds = featuredList
+      .filter(item => item.contentType === 'course')
+      .map(item => item.contentId);
+    const courses = courseIds.length > 0
+      ? await this.courseRepository.findBy({ id: In(courseIds) })
+      : [];
+    const courseMap = new Map(courses.map(c => [c.id, c]));
+
     // Enrich with actual content details
-    const enrichedList = await Promise.all(
-      featuredList.map(async (item) => {
-        if (item.contentType === 'course') {
-          const course = await this.courseRepository.findOne({ where: { id: item.contentId } });
-          return {
-            ...item,
-            course,
-          };
-        }
-        return item;
-      })
-    );
+    const enrichedList = featuredList.map((item) => {
+      if (item.contentType === 'course') {
+        return { ...item, course: courseMap.get(item.contentId) || null };
+      }
+      return item;
+    });
 
     return {
       records: enrichedList,
@@ -66,7 +69,7 @@ export class FeaturedService {
 
     const courses = await this.courseRepository
       .createQueryBuilder('course')
-      .whereInIds(courseIds)
+      .where('course.id IN (:...ids)', { ids: courseIds })
       .andWhere('course.status = :status', { status: 1 })
       .getMany();
 
@@ -79,15 +82,20 @@ export class FeaturedService {
     };
   }
 
-  async getAllCoursesGroupedByHierarchy() {
-    const courses = await this.courseRepository.find({
+  async getAllCourses(page: number = 1, pageSize: number = 20) {
+    const [courses, total] = await this.courseRepository.findAndCount({
       where: { status: 1 },
       order: { id: 'ASC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
     });
 
     return {
       records: courses,
-      total: courses.length,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
     };
   }
 

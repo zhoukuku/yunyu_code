@@ -1,5 +1,7 @@
 import { Controller, Get, Post, Put, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
 import { LearningReportService } from './learning-report.service';
 
 @Controller('learning-report')
@@ -13,7 +15,8 @@ export class LearningReportController {
   }
 
   @Post('skills/categories')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(1)
   async createSkillCategory(@Body() data: any) {
     const category = await this.learningReportService.createSkillCategory(data);
     return { status: 200, result: category };
@@ -63,7 +66,8 @@ export class LearningReportController {
   }
 
   @Post('course-skills')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(1)
   async createCourseSkill(@Body() data: any) {
     const skill = await this.learningReportService.createCourseSkill(data);
     return { status: 200, result: skill };
@@ -89,7 +93,7 @@ export class LearningReportController {
     if (!userId) return { status: 401, result: null };
     const reports = await this.learningReportService.getLearningReports(
       userId,
-      limit ? parseInt(limit) : 10
+      limit ? parseInt(limit, 10) : 10
     );
     return { status: 200, result: reports };
   }

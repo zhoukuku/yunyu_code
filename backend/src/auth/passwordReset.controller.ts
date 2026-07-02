@@ -6,8 +6,8 @@ import {
   VerifyResetCodeDto,
   AdminResetPasswordDto,
 } from './dto/passwordReset.dto';
-import { RolesGuard } from './roles.guard';
-import { Roles } from './roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from './role.enum';
 
 @Controller('auth/reset-password')

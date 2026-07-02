@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Card, Row, Col, Progress, Tag, Button, Select, Spin, Empty, Tabs, Radio, Space, message, Modal, Input, List, Badge } from 'antd';
+import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Card, Row, Col, Progress, Tag, Button, Select, Spin, Empty, Tabs, Radio, Space, message, Modal } from 'antd';
 import {
   BarChartOutlined,
   RadarChartOutlined,
@@ -8,7 +9,6 @@ import {
   BookOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
-  TeamOutlined,
   ThunderboltOutlined,
   UserOutlined,
   DeleteOutlined,
@@ -22,11 +22,12 @@ import {
   rejectParentalReport,
   deleteParentalReport,
 } from '../../services/api';
+import { safeGetItem } from '../../utils/storage';
 
-const { TextArea } = Input;
 const { confirm } = Modal;
 
 export default function ParentalReportPage() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [reports, setReports] = useState([]);
   const [linkedStudents, setLinkedStudents] = useState([]);
@@ -35,38 +36,54 @@ export default function ParentalReportPage() {
   const [generating, setGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState('list');
 
-  useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      window.location.href = '/login';
-      return;
-    }
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [reportsRes, studentsRes] = await Promise.all([
+      const [reportsResult, studentsResult] = await Promise.allSettled([
         getParentalReports(),
         getLinkedStudents(),
       ]);
 
-      if (reportsRes.status === 200) {
-        setReports(reportsRes.result || []);
-      }
-      if (studentsRes.status === 200) {
-        setLinkedStudents(studentsRes.result || []);
-        if (studentsRes.result && studentsRes.result.length > 0) {
-          setSelectedStudent(studentsRes.result[0].studentId);
+      if (reportsResult.status === 'fulfilled') {
+        const res = reportsResult.value;
+        if (res.status === 200) {
+          setReports(res.result || []);
         }
+      } else {
+        console.error('加载报告列表失败:', reportsResult.reason);
+      }
+
+      if (studentsResult.status === 'fulfilled') {
+        const res = studentsResult.value;
+        if (res.status === 200) {
+          setLinkedStudents(res.result || []);
+          if (res.result && res.result.length > 0) {
+            setSelectedStudent(res.result[0].studentId);
+          }
+        }
+      } else {
+        console.error('加载关联学生失败:', studentsResult.reason);
+      }
+
+      if (reportsResult.status === 'rejected' && studentsResult.status === 'rejected') {
+        message.error('加载监管报告失败');
       }
     } catch (e) {
+      console.error('加载监管报告异常:', e);
       message.error('加载监管报告失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const token = safeGetItem('accessToken');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    loadData();
+  }, [navigate, loadData]);
 
   const handleGenerateReport = async () => {
     if (!selectedStudent) {
@@ -80,8 +97,11 @@ export default function ParentalReportPage() {
         message.success('报告生成成功');
         loadData();
         setActiveTab('list');
+      } else {
+        message.error(res.message || '生成报告失败');
       }
     } catch (e) {
+      console.error('生成报告异常:', e);
       message.error('生成报告失败');
     } finally {
       setGenerating(false);
@@ -94,8 +114,11 @@ export default function ParentalReportPage() {
       if (res.status === 200) {
         message.success('报告已批准');
         loadData();
+      } else {
+        message.error(res.message || '操作失败');
       }
     } catch (e) {
+      console.error('批准报告异常:', e);
       message.error('操作失败');
     }
   };
@@ -106,8 +129,11 @@ export default function ParentalReportPage() {
       if (res.status === 200) {
         message.success('报告已拒绝');
         loadData();
+      } else {
+        message.error(res.message || '操作失败');
       }
     } catch (e) {
+      console.error('拒绝报告异常:', e);
       message.error('操作失败');
     }
   };
@@ -123,8 +149,11 @@ export default function ParentalReportPage() {
           if (res.status === 200) {
             message.success('报告已删除');
             loadData();
+          } else {
+            message.error(res.message || '删除失败');
           }
         } catch (e) {
+          console.error('删除报告异常:', e);
           message.error('删除失败');
         }
       },
@@ -353,19 +382,8 @@ export default function ParentalReportPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Card
-        title="家长监管报告"
-        extra={
-          <Tabs
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            size="small"
-            items={[{ key: 'list', label: '报告列表' }, { key: 'generate', label: '生成报告' }]}
-            style={{ marginBottom: 0 }}
-          />
-        }
-      >
-        <Tabs activeKey={activeTab} items={[listTab, generateTab]} />
+      <Card title="家长监管报告">
+        <Tabs activeKey={activeTab} onChange={setActiveTab} items={[listTab, generateTab]} />
       </Card>
     </div>
   );

@@ -8,9 +8,17 @@ export class FavoritesController {
   constructor(private readonly favoritesService: FavoritesService) {}
 
   @Get()
-  async getUserFavorites(@Request() req: any) {
+  async getUserFavorites(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     const userId = req.user?.sub;
-    return this.favoritesService.findByUser(userId);
+    return this.favoritesService.findByUser(
+      userId,
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+    );
   }
 
   @Post()
@@ -30,6 +38,6 @@ export class FavoritesController {
   async checkFavorite(@Request() req: any, @Query('projectId') projectId: string) {
     const userId = req.user?.sub;
     const isFavorited = await this.favoritesService.isFavorited(userId, parseInt(projectId, 10));
-    return { favorited: isFavorited };
+    return { status: 200, result: { favorited: isFavorited } };
   }
 }

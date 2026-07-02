@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Avatar, Button, Input, List, Spin, message, Modal } from 'antd';
 import { HeartOutlined, HeartFilled, ArrowLeftOutlined, UserOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getCommunityPost, getPostComments, createComment, deleteComment, toggleLike, checkUserLiked } from '../../../services/api';
+import { safeGetJSON } from '../../../utils/storage';
 
 const { TextArea } = Input;
 
@@ -18,53 +19,56 @@ export default function WorkDetailPage() {
   const [replyingTo, setReplyingTo] = useState(null);
   const [replyContent, setReplyContent] = useState('');
 
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const currentUser = safeGetJSON('user', {});
   const currentUserId = currentUser.id;
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [postData, commentsData] = await Promise.all([
+      const [postRes, commentsRes] = await Promise.all([
         getCommunityPost(id),
         getPostComments(id),
       ]);
+      const postData = postRes?.result;
+      const commentsData = commentsRes?.result;
       setPost(postData);
       setComments(commentsData || []);
 
       if (currentUserId && postData) {
-        const likedRes = await checkUserLiked(postData.id, currentUserId);
-        setLiked(likedRes.liked);
+        const likedRes = await checkUserLiked(postData.id);
+        setLiked(likedRes.status === 200 ? likedRes.result?.liked : false);
       }
     } catch (error) {
       console.error('Failed to fetch data:', error);
-      message.error('Failed to load work details');
+      message.error('加载作品详情失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, currentUserId]);
 
   useEffect(() => {
     fetchData();
-  }, [id]);
+  }, [fetchData]);
 
   const handleLike = async () => {
     if (!currentUserId) {
-      message.warning('Please login first');
+      message.warning('请先登录');
       return;
     }
     try {
-      const result = await toggleLike(post.id, currentUserId);
-      setPost({ ...post, likesCount: result.likesCount });
-      setLiked(result.liked);
+      const result = await toggleLike(post.id);
+      const data = result?.result;
+      setPost({ ...post, likesCount: data?.likesCount ?? post.likesCount });
+      setLiked(data?.liked ?? false);
     } catch (error) {
       console.error('Failed to toggle like:', error);
-      message.error('Failed to toggle like');
+      message.error('点赞操作失败');
     }
   };
 
   const handleSubmitComment = async () => {
     if (!currentUserId) {
-      message.warning('Please login first');
+      message.warning('请先登录');
       return;
     }
     if (!commentContent.trim()) {
@@ -78,13 +82,13 @@ export default function WorkDetailPage() {
         userId: currentUserId,
       });
       setCommentContent('');
-      const updatedComments = await getPostComments(id);
-      setComments(updatedComments || []);
+      const updatedRes = await getPostComments(id);
+      setComments(updatedRes?.result || []);
       setPost({ ...post, commentsCount: (post.commentsCount || 0) + 1 });
-      message.success('Comment added');
+      message.success('评论发表成功');
     } catch (error) {
       console.error('Failed to add comment:', error);
-      message.error('Failed to add comment');
+      message.error('评论发表失败');
     } finally {
       setSubmitting(false);
     }
@@ -92,7 +96,7 @@ export default function WorkDetailPage() {
 
   const handleSubmitReply = async (parentId) => {
     if (!currentUserId) {
-      message.warning('Please login first');
+      message.warning('请先登录');
       return;
     }
     if (!replyContent.trim()) {
@@ -108,12 +112,12 @@ export default function WorkDetailPage() {
       });
       setReplyingTo(null);
       setReplyContent('');
-      const updatedComments = await getPostComments(id);
-      setComments(updatedComments || []);
-      message.success('Reply added');
+      const updatedRes = await getPostComments(id);
+      setComments(updatedRes?.result || []);
+      message.success('回复发表成功');
     } catch (error) {
       console.error('Failed to add reply:', error);
-      message.error('Failed to add reply');
+      message.error('回复发表失败');
     } finally {
       setSubmitting(false);
     }
@@ -121,18 +125,18 @@ export default function WorkDetailPage() {
 
   const handleDeleteComment = async (commentId) => {
     Modal.confirm({
-      title: 'Delete Comment',
-      content: 'Are you sure you want to delete this comment?',
+      title: '删除评论',
+      content: '确定要删除此评论吗？',
       onOk: async () => {
         try {
           await deleteComment(commentId);
-          const updatedComments = await getPostComments(id);
-          setComments(updatedComments || []);
+          const updatedRes = await getPostComments(id);
+          setComments(updatedRes?.result || []);
           setPost({ ...post, commentsCount: Math.max(0, (post.commentsCount || 0) - 1) });
-          message.success('Comment deleted');
+          message.success('评论已删除');
         } catch (error) {
           console.error('Failed to delete comment:', error);
-          message.error('Failed to delete comment');
+          message.error('删除评论失败');
         }
       },
     });
@@ -159,8 +163,8 @@ export default function WorkDetailPage() {
   if (!post) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
-        <h3>Work not found</h3>
-        <Button onClick={() => navigate('/community')}>Back to Community</Button>
+        <h3>未找到作品</h3>
+        <Button onClick={() => navigate('/community')}>返回社区</Button>
       </div>
     );
   }
@@ -170,7 +174,7 @@ export default function WorkDetailPage() {
   return (
     <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
       <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/community')} style={{ marginBottom: 16 }}>
-        Back
+        返回
       </Button>
 
       <Card>
@@ -190,19 +194,19 @@ export default function WorkDetailPage() {
             icon={liked ? <HeartFilled style={{ color: '#ff4d4f' }} /> : <HeartOutlined />}
             onClick={handleLike}
           >
-            {post.likesCount || 0} Likes
+            {post.likesCount || 0} 赞
           </Button>
           <Button type="text">
-            {post.viewsCount || 0} Views
+            {post.viewsCount || 0} 浏览
           </Button>
           <Button type="text">
-            {post.commentsCount || 0} Comments
+            {post.commentsCount || 0} 评论
           </Button>
         </div>
 
         {post.description && (
           <div style={{ marginTop: 24, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
-            <strong>Description:</strong>
+            <strong>描述：</strong>
             <p>{post.description}</p>
           </div>
         )}
@@ -210,21 +214,21 @@ export default function WorkDetailPage() {
         {post.projectUrl && (
           <div style={{ marginTop: 16 }}>
             <a href={post.projectUrl} target="_blank" rel="noopener noreferrer">
-              View Project
+              查看项目
             </a>
           </div>
         )}
 
         <div style={{ marginTop: 16, fontSize: 12, color: '#888', textAlign: 'center' }}>
-          Shared by User {post.userId} on {new Date(post.createdAt).toLocaleDateString()}
+          由用户 {post.userId} 于 {new Date(post.createdAt).toLocaleDateString()} 分享
         </div>
       </Card>
 
-      <Card title="Comments" style={{ marginTop: 16 }}>
+      <Card title="评论" style={{ marginTop: 16 }}>
         <div style={{ marginBottom: 24 }}>
           <TextArea
             rows={3}
-            placeholder="Write a comment..."
+            placeholder="写下你的评论..."
             value={commentContent}
             onChange={(e) => setCommentContent(e.target.value)}
           />
@@ -234,7 +238,7 @@ export default function WorkDetailPage() {
             loading={submitting}
             style={{ marginTop: 8 }}
           >
-            Post Comment
+            发表评论
           </Button>
         </div>
 
@@ -243,34 +247,35 @@ export default function WorkDetailPage() {
           renderItem={(comment) => (
             <List.Item
               actions={[
-                currentUserId === comment.userId && (
+                currentUserId === comment.userId ? (
                   <DeleteOutlined
+                    key="delete"
                     style={{ cursor: 'pointer', color: '#ff4d4f' }}
                     onClick={() => handleDeleteComment(comment.id)}
                   />
-                ),
-              ]}
+                ) : null,
+              ].filter(Boolean)}
             >
               <List.Item.Meta
                 avatar={<Avatar icon={<UserOutlined />} />}
-                title={`User ${comment.userId || 'Anonymous'} - ${new Date(comment.createdAt).toLocaleString()}`}
+                title={`用户 ${comment.userId || '匿名'} - ${new Date(comment.createdAt).toLocaleString()}`}
                 description={comment.content}
               />
               <div style={{ marginLeft: 48 }}>
                 <Button size="small" onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}>
-                  Reply
+                  回复
                 </Button>
 
                 {replyingTo === comment.id && (
                   <div style={{ marginTop: 8 }}>
                     <TextArea
                       rows={2}
-                      placeholder="Write a reply..."
+                      placeholder="写下你的回复..."
                       value={replyContent}
                       onChange={(e) => setReplyContent(e.target.value)}
                     />
                     <Button size="small" type="primary" onClick={() => handleSubmitReply(comment.id)} loading={submitting} style={{ marginTop: 4 }}>
-                      Post Reply
+                      发表回复
                     </Button>
                   </div>
                 )}
@@ -280,17 +285,18 @@ export default function WorkDetailPage() {
                     {comment.replies.map((reply) => (
                       <Card key={reply.id} size="small" style={{ marginTop: 4 }}
                         actions={[
-                          currentUserId === reply.userId && (
+                          currentUserId === reply.userId ? (
                             <DeleteOutlined
+                              key="delete"
                               style={{ cursor: 'pointer', color: '#ff4d4f' }}
                               onClick={() => handleDeleteComment(reply.id)}
                             />
-                          ),
-                        ]}
+                          ) : null,
+                        ].filter(Boolean)}
                       >
                         <List.Item.Meta
                           avatar={<Avatar size="small" icon={<UserOutlined />} />}
-                          title={`User ${reply.userId || 'Anonymous'} - ${new Date(reply.createdAt).toLocaleString()}`}
+                          title={`用户 ${reply.userId || '匿名'} - ${new Date(reply.createdAt).toLocaleString()}`}
                           description={reply.content}
                         />
                       </Card>

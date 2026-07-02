@@ -1,13 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { ParentalReport, ReportStatus } from '../entities/parental-report.entity';
 import { LearningReport } from '../entities/learning-report.entity';
 import { UserCourse } from '../entities/user-course.entity';
 import { VideoProgress } from '../entities/video-progress.entity';
+import { Course } from '../entities/course.entity';
 
 @Injectable()
 export class ParentalReportService {
+  private readonly logger = new Logger(ParentalReportService.name);
+
   constructor(
     @InjectRepository(ParentalReport)
     private parentalReportRepository: Repository<ParentalReport>,
@@ -17,6 +20,8 @@ export class ParentalReportService {
     private userCourseRepository: Repository<UserCourse>,
     @InjectRepository(VideoProgress)
     private videoProgressRepository: Repository<VideoProgress>,
+    @InjectRepository(Course)
+    private courseRepository: Repository<Course>,
   ) {}
 
   async generateReport(parentId: number, studentId: number, reportType: string, studentName?: string): Promise<ParentalReport> {
@@ -40,14 +45,38 @@ export class ParentalReportService {
 
     // Get student's learning data
     const studentCourses = await this.userCourseRepository.find({
-      where: { userId: studentId },
+      where: { userId: studentId, status: 1 },
     });
 
     const coursesEnrolled = studentCourses.length;
-    const coursesCompleted = studentCourses.filter(c => c.status === 1).length;
 
-    // Get lessons completed in period based on video progress
-    const lessonsCompleted = await this.videoProgressRepository
+    // Fetch course data and build lookup map
+    let coursesCompleted = 0;
+    let averageProgress = 0;
+    const courseMap = new Map<number, Course>();
+    if (studentCourses.length > 0) {
+      const courseIds = studentCourses.map(sc => sc.courseId);
+      const courses = await this.courseRepository.find({ where: { id: In(courseIds) } });
+      for (const c of courses) {
+        courseMap.set(c.id, c);
+      }
+
+      let totalProgressPercent = 0;
+      for (const sc of studentCourses) {
+        const course = courseMap.get(sc.courseId);
+        if (course && course.totalLessons > 0) {
+          // Calculate per-course progress as a percentage
+          totalProgressPercent += (sc.completedLessons / course.totalLessons) * 100;
+          if (sc.completedLessons >= course.totalLessons) {
+            coursesCompleted++;
+          }
+        }
+      }
+      averageProgress = Math.round(totalProgressPercent / studentCourses.length);
+    }
+
+    // Get video lessons completed within the report period
+    const videoLessonsCompleted = await this.videoProgressRepository
       .createQueryBuilder('vp')
       .where('vp.userId = :studentId', { studentId })
       .andWhere('vp.isCompleted = :completed', { completed: 1 })
@@ -55,19 +84,15 @@ export class ParentalReportService {
       .andWhere('vp.updatedAt <= :periodEnd', { periodEnd })
       .getCount();
 
-    // Calculate total study minutes (using video duration)
-    const videoProgressList = await this.videoProgressRepository.find({
-      where: { userId: studentId, isCompleted: 1 },
-    });
+    // Calculate total study minutes (using video duration, within the report period)
+    const videoProgressList = await this.videoProgressRepository
+      .createQueryBuilder('vp')
+      .where('vp.userId = :studentId', { studentId })
+      .andWhere('vp.isCompleted = :completed', { completed: 1 })
+      .andWhere('vp.updatedAt >= :periodStart', { periodStart })
+      .andWhere('vp.updatedAt <= :periodEnd', { periodEnd })
+      .getMany();
     const totalStudyMinutes = videoProgressList.reduce((sum, vp) => sum + Math.floor(vp.duration / 60), 0);
-
-    // Calculate average progress
-    let averageProgress = 0;
-    if (studentCourses.length > 0) {
-      // completedLessons could be used for progress calculation
-      const totalCompleted = studentCourses.reduce((sum, c) => sum + c.completedLessons, 0);
-      averageProgress = studentCourses.length > 0 ? Math.round(totalCompleted / studentCourses.length) : 0;
-    }
 
     // Get top and weak skills from learning reports
     const learningReports = await this.learningReportRepository.find({
@@ -90,7 +115,7 @@ export class ParentalReportService {
           weakSkills = summaryData.weakSkills || [];
           recentAchievements = summaryData.recentAchievements || [];
         } catch (e) {
-          // Ignore JSON parse errors
+          this.logger.warn(`Failed to parse summary JSON for report, proceeding with defaults`);
         }
       }
     }
@@ -104,7 +129,7 @@ export class ParentalReportService {
       periodStart,
       periodEnd,
       totalStudyMinutes,
-      lessonsCompleted,
+      lessonsCompleted: videoLessonsCompleted,
       coursesEnrolled,
       coursesCompleted,
       averageProgress,
@@ -146,7 +171,7 @@ export class ParentalReportService {
 
     report.status = ReportStatus.APPROVED;
     report.reviewedAt = new Date();
-    report.reviewComment = comment || null;
+    report.reviewComment = comment ?? null;
 
     return this.parentalReportRepository.save(report);
   }
@@ -157,7 +182,7 @@ export class ParentalReportService {
 
     report.status = ReportStatus.REJECTED;
     report.reviewedAt = new Date();
-    report.reviewComment = comment || null;
+    report.reviewComment = comment ?? null;
 
     return this.parentalReportRepository.save(report);
   }

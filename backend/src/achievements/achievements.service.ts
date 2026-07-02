@@ -14,8 +14,9 @@ export class AchievementsService {
     const existing = await this.achievementRepository.findOne({ where: { userId } });
     if (existing) return;
 
-    const achievements = Object.keys(AchievementType).map((type) => {
-      const config = ACHIEVEMENT_CONFIGS[type as AchievementType];
+    // Object.values for string enums — Object.keys returns key names, not values
+    const achievements = Object.values(AchievementType).map((type) => {
+      const config = ACHIEVEMENT_CONFIGS[type];
       return this.achievementRepository.create({
         userId,
         type: type as AchievementType,
@@ -93,12 +94,16 @@ export class AchievementsService {
   }
 
   async getAchievementStats(userId: number): Promise<{ total: number; unlocked: number; locked: number }> {
-    const achievements = await this.getUserAchievements(userId);
-    const unlocked = achievements.filter((a) => a.unlocked).length;
-    return {
-      total: achievements.length,
-      unlocked,
-      locked: achievements.length - unlocked,
-    };
+    const stats = await this.achievementRepository
+      .createQueryBuilder('achievement')
+      .select('COUNT(*)', 'total')
+      .addSelect('SUM(CASE WHEN achievement.unlocked = 1 THEN 1 ELSE 0 END)', 'unlocked')
+      .where('achievement.userId = :userId', { userId })
+      .getRawOne();
+
+    const total = parseInt(stats.total, 10) || 0;
+    const unlocked = parseInt(stats.unlocked, 10) || 0;
+
+    return { total, unlocked, locked: total - unlocked };
   }
 }

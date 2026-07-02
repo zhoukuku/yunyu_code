@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Row, Col, Card, Tag, Tabs, Button, message, Select, Input, Form, Space, Progress, Badge, Modal, Empty, Radio, Divider, Avatar, Tooltip } from 'antd';
-import { BookOutlined, PlayCircleOutlined, UserOutlined, TeamOutlined, SearchOutlined, ClockCircleOutlined, StarOutlined, FireOutlined, FilterOutlined, AppstoreOutlined, BarsOutlined, SortAscendingOutlined, CloseOutlined, CheckCircleFilled, LockOutlined } from '@ant-design/icons';
+import { BookOutlined, PlayCircleOutlined, UserOutlined, TeamOutlined, SearchOutlined, ClockCircleOutlined, StarOutlined, FireOutlined, FilterOutlined, AppstoreOutlined, BarsOutlined, SortAscendingOutlined, CloseOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getHierarchy, getCourses } from '../../services/api';
+import { safeGetItem } from '../../utils/storage';
 import './courses.css';
 
 const { Option } = Select;
@@ -28,7 +29,7 @@ export default function CoursesPage() {
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
+    const token = safeGetItem('accessToken');
     if (!token) {
       window.location.href = '/login';
       return;
@@ -207,21 +208,25 @@ export default function CoursesPage() {
             onChange={handleTabChange}
             type="line"
             className="hierarchy-tabs"
-            tabBarExtraContent={
-              <div className="tabs-extra">
-                <Badge count={courses.length} style={{ backgroundColor: '#667eea' }}>
-                  <span className="courses-count-label">当前课程数</span>
-                </Badge>
-              </div>
-            }
-          >
-            {hierarchies.map(h => (
-              <Tabs.TabPane key={h.hierarchyId} tab={
+            tabBarExtraContent={{
+              right: (
+                <div className="tabs-extra">
+                  <Badge count={courses.length} style={{ backgroundColor: '#667eea' }}>
+                    <span className="courses-count-label">当前课程数</span>
+                  </Badge>
+                </div>
+              ),
+            }}
+            items={hierarchies.map(h => ({
+              key: h.hierarchyId,
+              label: (
                 <span className="hierarchy-tab">
                   <BookOutlined />
                   {h.hierarchyName}
                 </span>
-              }>
+              ),
+            }))}
+          />
                 {loading ? (
                   <div className="courses-loading">
                     <div className="loading-spinner"></div>
@@ -521,9 +526,6 @@ export default function CoursesPage() {
                     )}
                   </>
                 )}
-              </Tabs.TabPane>
-            ))}
-          </Tabs>
         </div>
       </div>
 

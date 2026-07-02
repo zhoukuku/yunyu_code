@@ -1,16 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, List, Avatar, Tabs, Button, Spin, Empty, Tag } from 'antd';
 import { UserOutlined, HeartOutlined, CommentOutlined, UserAddOutlined, FileImageOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getFollowingActivities, getGlobalActivities } from '../../services/api';
-
-const { TabPane } = Tabs;
+import { safeGetJSON } from '../../utils/storage';
 
 const activityTypeConfig = {
-  post: { icon: <FileImageOutlined />, color: '#1890ff', text: 'posted' },
-  comment: { icon: <CommentOutlined />, color: '#52c41a', text: 'commented' },
-  like: { icon: <HeartOutlined />, color: '#ff4d4f', text: 'liked' },
-  follow: { icon: <UserAddOutlined />, color: '#722ed1', text: 'followed' },
+  post: { icon: <FileImageOutlined />, color: '#1890ff', text: '发布了' },
+  comment: { icon: <CommentOutlined />, color: '#52c41a', text: '评论了' },
+  like: { icon: <HeartOutlined />, color: '#ff4d4f', text: '点赞了' },
+  follow: { icon: <UserAddOutlined />, color: '#722ed1', text: '关注了' },
 };
 
 export default function ActivityPage() {
@@ -22,10 +21,10 @@ export default function ActivityPage() {
   const [page, setPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const currentUser = safeGetJSON('user', {});
   const isLoggedIn = !!currentUser.id;
 
-  const fetchActivities = async (type, pageNum = 1) => {
+  const fetchActivities = useCallback(async (type, pageNum = 1) => {
     if (type === 'following' && !isLoggedIn) {
       setActivities([]);
       setTotal(0);
@@ -57,12 +56,12 @@ export default function ActivityPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  };
+  }, [isLoggedIn]);
 
   useEffect(() => {
     setPage(1);
     fetchActivities(activeTab, 1);
-  }, [activeTab]);
+  }, [activeTab, fetchActivities]);
 
   const handleTabChange = (key) => {
     setActiveTab(key);
@@ -103,7 +102,7 @@ export default function ActivityPage() {
               style={{ fontWeight: 500, cursor: 'pointer' }}
               onClick={() => handleUserClick(activity.userId)}
             >
-              {activity.user?.name || activity.user?.username || `User ${activity.userId}`}
+              {activity.user?.name || activity.user?.username || `用户 ${activity.userId}`}
             </span>
             <Tag icon={config.icon} color={config.color} style={{ margin: 0 }}>
               {config.text}
@@ -123,7 +122,7 @@ export default function ActivityPage() {
             <div style={{ marginTop: 8 }}>
               <img
                 src={activity.extra}
-                alt="thumbnail"
+                alt="缩略图"
                 style={{
                   width: 80,
                   height: 60,
@@ -144,11 +143,11 @@ export default function ActivityPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Card title="Activity Feed">
-        <Tabs activeKey={activeTab} onChange={handleTabChange}>
-          <TabPane tab="Global" key="global" />
-          {isLoggedIn && <TabPane tab="Following" key="following" />}
-        </Tabs>
+      <Card title="动态">
+        <Tabs activeKey={activeTab} onChange={handleTabChange} items={[
+          { key: 'global', label: '全局' },
+          ...(isLoggedIn ? [{ key: 'following', label: '关注' }] : []),
+        ]} />
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40 }}>
@@ -158,13 +157,14 @@ export default function ActivityPage() {
           <Empty
             description={
               activeTab === 'following'
-                ? "You're not following anyone yet. Follow users to see their activities here!"
-                : "No activities yet. Be the first to share something!"
+                ? "你还没有关注任何人，关注用户后可在此查看他们的动态！"
+                : "暂无动态，快来分享内容吧！"
             }
           />
         ) : (
           <List
             dataSource={activities}
+            rowKey="id"
             renderItem={(activity) => (
               <List.Item
                 style={{
@@ -183,7 +183,7 @@ export default function ActivityPage() {
         {!loading && activities.length > 0 && activities.length < total && (
           <div style={{ textAlign: 'center', marginTop: 16 }}>
             <Button onClick={handleLoadMore} loading={loadingMore}>
-              Load More
+              加载更多
             </Button>
           </div>
         )}

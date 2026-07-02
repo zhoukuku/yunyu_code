@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Card, List, Avatar, Input, Button, Badge, message, Empty } from 'antd';
 import { SendOutlined, MessageOutlined, UserOutlined } from '@ant-design/icons';
 import {
@@ -6,8 +6,8 @@ import {
   getConversation,
   sendMessage,
   markConversationAsRead,
-  getUnreadMessageCount
 } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 
 export default function MessagesPage() {
   const [conversations, setConversations] = useState([]);
@@ -19,25 +19,7 @@ export default function MessagesPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const messagesEndRef = useRef(null);
 
-  useEffect(() => {
-    const user = localStorage.getItem('user');
-    if (user) {
-      setCurrentUser(JSON.parse(user));
-    }
-    fetchConversations();
-  }, []);
-
-  useEffect(() => {
-    if (selectedPartner) {
-      fetchMessages(selectedPartner.partnerId);
-    }
-  }, [selectedPartner]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const fetchConversations = async () => {
+  const fetchConversations = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getConversationsList();
@@ -46,12 +28,14 @@ export default function MessagesPage() {
       }
     } catch (error) {
       console.error('Failed to fetch conversations:', error);
+      message.error('加载对话列表失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchMessages = async (partnerId) => {
+  const fetchMessages = useCallback(async (partnerId) => {
+    if (!partnerId) return;
     try {
       const res = await getConversation(partnerId);
       if (res.status === 200) {
@@ -65,8 +49,27 @@ export default function MessagesPage() {
       }
     } catch (error) {
       console.error('Failed to fetch messages:', error);
+      message.error('加载消息失败');
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const parsedUser = safeGetJSON('user');
+    if (parsedUser) {
+      setCurrentUser(parsedUser);
+    }
+    fetchConversations();
+  }, [fetchConversations]);
+
+  useEffect(() => {
+    if (selectedPartner) {
+      fetchMessages(selectedPartner.partnerId);
+    }
+  }, [selectedPartner, fetchMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || !selectedPartner || !currentUser) return;
@@ -78,6 +81,7 @@ export default function MessagesPage() {
         setInputMessage('');
         setMessages(prev => [...prev, {
           ...res.result,
+          senderId: currentUser.id,
           sender: { id: currentUser.id, username: currentUser.username, avatar: currentUser.avatar },
           receiver: { id: selectedPartner.partnerId, username: selectedPartner.partnerUsername, avatar: selectedPartner.partnerAvatar }
         }]);
@@ -98,6 +102,7 @@ export default function MessagesPage() {
   const formatTime = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
     const now = new Date();
     const diff = now - date;
     const oneDay = 24 * 60 * 60 * 1000;
@@ -124,6 +129,7 @@ export default function MessagesPage() {
       >
         <List
           dataSource={conversations}
+          rowKey="partnerId"
           locale={{ emptyText: '暂无私信' }}
           renderItem={item => (
             <List.Item
@@ -187,12 +193,15 @@ export default function MessagesPage() {
           <>
             {/* Messages Area */}
             <div style={{ flex: 1, overflow: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {messages.map((msg, index) => {
+              {messages.length === 0 ? (
+                <Empty description="暂无消息，发送一条消息开始对话吧" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }} />
+              ) : (
+                messages.map((msg, index) => {
                 const isSelf = msg.senderId === currentUser?.id;
                 const showAvatar = index === 0 || messages[index - 1]?.senderId !== msg.senderId;
                 return (
                   <div
-                    key={msg.id || index}
+                    key={msg.id || `msg-${index}`}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -224,7 +233,8 @@ export default function MessagesPage() {
                     </div>
                   </div>
                 );
-              })}
+              })
+              )}
               <div ref={messagesEndRef} />
             </div>
 

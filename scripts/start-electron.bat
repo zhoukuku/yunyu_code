@@ -28,9 +28,9 @@ echo.
 
 echo [3/3] Starting Electron app...
 cd electron
-start "" "node_modules\.bin\electron.cmd" .
+start "" node run-electron.js .
 cd ..
 
 echo.
-echo Done! App should be starting...
+echo App should be starting...
 pause

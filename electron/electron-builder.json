@@ -1,0 +1,68 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.yunyu.learning-platform",
+  "productName": "云屿学习平台",
+  "copyright": "Copyright © 2024 云屿科技",
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "build"
+  },
+  "files": [
+    "main.js",
+    "preload.js",
+    "update.js",
+    "offlineSupport.js",
+    "windowManagement.js",
+    "trayMenu.js",
+    "package.json",
+    "dist/**/*",
+    "build/**/*",
+    "backend/**/*",
+    "!backend/node_modules/.cache{,/**/*}",
+    "!backend/src{,/**/*}",
+    "!backend/test{,/**/*}",
+    "!backend/*.{iml,orig,pyc,pyo,rbc,swp,d.ts,mk,o,forge-meta,pdb,tsbuildinfo}",
+    "!backend/**/*.{iml,orig,pyc,pyo,rbc,swp,d.ts,mk,o,forge-meta,pdb,tsbuildinfo}",
+    "!backend/database.sqlite{,/**/*}",
+    "!**/node_modules/.cache{,/**/*}",
+    "!**/.turbo{,/**/*}"
+  ],
+  "extraFiles": [],
+  "win": {
+    "icon": "build/icon.ico",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "${productName}-${version}-Setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "云屿学习平台"
+  },
+  "mac": {
+    "target": ["dmg", "zip"],
+    "category": "public.app-category.education",
+    "artifactName": "${productName}-${version}-mac.${ext}",
+    "icon": "build/icon.icns"
+  },
+  "linux": {
+    "target": ["AppImage"],
+    "category": "Education",
+    "artifactName": "${productName}-${version}-linux.${ext}",
+    "icon": "build/icon.png"
+  },
+  "extraMetadata": {
+    "main": "main.js"
+  },
+  "asar": false,
+  "publish": {
+    "provider": "generic",
+    "url": "https://update.yunyu-tech.com/updates/"
+  }
+}

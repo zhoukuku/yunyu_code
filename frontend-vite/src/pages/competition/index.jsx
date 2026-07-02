@@ -1,18 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Tabs, List, Tag, Button, Table, Modal, Form, Input, Select, message, Space, Statistic, Row, Col } from 'antd';
-import { BookOutlined, FileTextOutlined, TrophyOutlined, CodeOutlined, DeleteOutlined } from '@ant-design/icons';
+import { BookOutlined, FileTextOutlined, TrophyOutlined, CodeOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import {
-  getCompetitionEvaluations,
   getCompetitionSubmissions,
   submitCompetitionCode,
   deleteCompetitionSubmission,
   getCompetitionStats,
-  getCompetitionEvaluationStats,
   getProblems,
 } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 
-const { TabPane } = Tabs;
 const { TextArea } = Input;
 const { Option } = Select;
 
@@ -38,10 +36,10 @@ export default function CompetitionPage() {
   const { tab } = useParams();
   const [activeTab, setActiveTab] = useState(tab || 'info');
   const [user, setUser] = useState(null);
-  const [evaluations, setEvaluations] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [stats, setStats] = useState({ total: 0, accepted: 0, pending: 0, rejectRate: 0 });
-  const [loading, setLoading] = useState(false);
+  const [problemsLoading, setProblemsLoading] = useState(false);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [submitModalVisible, setSubmitModalVisible] = useState(false);
   const [submitForm] = Form.useForm();
   const [selectedProblem, setSelectedProblem] = useState(null);
@@ -58,71 +56,26 @@ export default function CompetitionPage() {
   // Mock problems for OJ - now fetched from API
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if (userStr) setUser(JSON.parse(userStr));
+    const parsedUser = safeGetJSON('user');
+    if (parsedUser) setUser(parsedUser);
   }, []);
 
-  useEffect(() => {
-    if (user?.id) {
-      fetchSubmissions();
-      fetchStats();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    fetchProblems();
-  }, []);
-
-  const fetchProblems = async () => {
-    setLoading(true);
-    try {
-      const res = await getProblems({ competitionId: 1 });
-      if (res.status === 200) {
-        setProblems(res.result?.records || []);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleViewCode = (record) => {
-    setSelectedSubmission(record);
-    setCodeViewModalVisible(true);
-  };
-
-  const fetchEvaluations = async (competitionId) => {
-    setLoading(true);
-    try {
-      const res = await getCompetitionEvaluations({ competitionId });
-      if (res.status === 200) {
-        setEvaluations(res.result?.records || []);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchSubmissions = async () => {
+  const fetchSubmissions = useCallback(async () => {
     if (!user?.id) return;
-    setLoading(true);
+    setSubmissionsLoading(true);
     try {
-      const res = await getCompetitionSubmissions({ userId: user.id });
+      const res = await getCompetitionSubmissions({ competitionId: 1, userId: user.id });
       if (res.status === 200) {
         setSubmissions(res.result?.records || []);
       }
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      setSubmissionsLoading(false);
     }
-  };
+  }, [user?.id]);
 
-  const fetchStats = async () => {
-    // Using competitionId 1 as default
+  const fetchStats = useCallback(async () => {
     try {
       const res = await getCompetitionStats(1);
       if (res.status === 200 && res.result) {
@@ -134,10 +87,40 @@ export default function CompetitionPage() {
         });
       }
     } catch (err) {
-      // Use mock data on error
       setStats({ total: 10, accepted: 6, pending: 2, rejectRate: 20 });
     }
+  }, []);
+
+  const fetchProblems = useCallback(async () => {
+    setProblemsLoading(true);
+    try {
+      const res = await getProblems({ competitionId: 1 });
+      if (res.status === 200) {
+        setProblems(res.result?.records || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setProblemsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchSubmissions();
+      fetchStats();
+    }
+  }, [user?.id, fetchSubmissions, fetchStats]);
+
+  useEffect(() => {
+    fetchProblems();
+  }, [fetchProblems]);
+
+  const handleViewCode = (record) => {
+    setSelectedSubmission(record);
+    setCodeViewModalVisible(true);
   };
+
 
   const handleSubmit = async (values) => {
     if (!user?.id) {
@@ -199,7 +182,7 @@ export default function CompetitionPage() {
       title: '得分',
       dataIndex: 'score',
       key: 'score',
-      render: (score, record) => `${score || 0} / ${record.maxScore || 100}`,
+      render: (score, record) => `${score ?? 0} / ${record.maxScore ?? 100}`,
     },
     {
       title: '状态',
@@ -259,10 +242,11 @@ export default function CompetitionPage() {
       </Row>
 
       <Card>
-        <Tabs activeKey={activeTab} onChange={setActiveTab}>
-          <TabPane tab={<span><BookOutlined /> 资讯&集训课</span>} key="info">
+        <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+          { key: 'info', label: <span><BookOutlined /> 资讯&集训课</span>, children: (
             <List
               dataSource={news}
+              rowKey="id"
               renderItem={item => (
                 <List.Item>
                   <List.Item.Meta
@@ -272,10 +256,11 @@ export default function CompetitionPage() {
                 </List.Item>
               )}
             />
-          </TabPane>
-          <TabPane tab={<span><FileTextOutlined /> 模考测评</span>} key="exam">
+          )},
+          { key: 'exam', label: <span><FileTextOutlined /> 模考测评</span>, children: (
             <List
               dataSource={problems}
+              rowKey="id"
               renderItem={item => (
                 <List.Item actions={[
                   <Tag color="green">可参加</Tag>,
@@ -288,10 +273,11 @@ export default function CompetitionPage() {
                 </List.Item>
               )}
             />
-          </TabPane>
-          <TabPane tab={<span><TrophyOutlined /> OJ评测</span>} key="oj">
+          )},
+          { key: 'oj', label: <span><TrophyOutlined /> OJ评测</span>, children: (
             <List
               dataSource={problems}
+              rowKey="id"
               renderItem={item => (
                 <List.Item actions={[
                   <Button type="primary" icon={<CodeOutlined />} onClick={() => {
@@ -303,17 +289,17 @@ export default function CompetitionPage() {
                 </List.Item>
               )}
             />
-          </TabPane>
-          <TabPane tab={<span><CodeOutlined /> 我的提交</span>} key="submissions">
+          )},
+          { key: 'submissions', label: <span><CodeOutlined /> 我的提交</span>, children: (
             <Table
               columns={submissionColumns}
               dataSource={submissions}
               rowKey="id"
-              loading={loading}
+              loading={submissionsLoading}
               pagination={{ pageSize: 10 }}
             />
-          </TabPane>
-        </Tabs>
+          )},
+        ]} />
       </Card>
 
       {/* Submit Modal */}
@@ -384,10 +370,10 @@ export default function CompetitionPage() {
             <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
               <Space>
                 <Tag color="blue">{selectedSubmission.language}</Tag>
-                <Tag color={SUBMISSION_STATUS_MAP[selectedSubmission.status]?.color || 'default'}>
-                  {SUBMISSION_STATUS_MAP[selectedSubmission.status]?.text || '未知'}
+                <Tag color={SUBMISSION_STATUS_MAP[selectedSubmission.status]?.color ?? 'default'}>
+                  {SUBMISSION_STATUS_MAP[selectedSubmission.status]?.text ?? '未知'}
                 </Tag>
-                <span>得分: {selectedSubmission.score || 0} / {selectedSubmission.maxScore || 100}</span>
+                <span>得分: {selectedSubmission.score ?? 0} / {selectedSubmission.maxScore ?? 100}</span>
               </Space>
               <div style={{ color: '#666' }}>
                 提交时间: {selectedSubmission.submittedAt ? new Date(selectedSubmission.submittedAt).toLocaleString() : '-'}

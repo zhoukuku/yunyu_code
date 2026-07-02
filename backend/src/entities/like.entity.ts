@@ -28,10 +28,11 @@ export class Like {
   @CreateDateColumn()
   createdAt: Date;
 
-  @ManyToOne(() => Post, (post) => post.likes, { onDelete: 'CASCADE' })
-  post: Post;
+  @ManyToOne(() => Post, (post) => post.likes, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'postId' })
+  post: Post | null;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'userId' })
-  user: User;
+  user: User | null;
 }

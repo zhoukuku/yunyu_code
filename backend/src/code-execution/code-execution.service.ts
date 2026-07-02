@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CodeExecution, CodeLanguage, ExecutionStatus } from '../entities/code-execution.entity';
@@ -17,6 +17,10 @@ const executionQueue: Array<() => void> = [];
 @Injectable()
 export class CodeExecutionService {
   private readonly logger = new Logger(CodeExecutionService.name);
+
+  // Cached interpreter/runtime paths to avoid repeated spawnSync calls
+  private cachedPythonPath: string | null | undefined = undefined;
+  private cachedJSRuntime: string | null | undefined = undefined;
 
   constructor(
     @InjectRepository(CodeExecution)
@@ -85,8 +89,9 @@ export class CodeExecutionService {
     userId?: number;
     language?: CodeLanguage;
     status?: ExecutionStatus;
-    limit?: number;
-  }): Promise<CodeExecution[]> {
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ records: CodeExecution[]; total: number; current: number; size: number; pages: number }> {
     const query = this.codeExecutionRepository.createQueryBuilder('execution');
 
     if (filters?.userId) {
@@ -98,12 +103,21 @@ export class CodeExecutionService {
     if (filters?.status !== undefined && filters.status !== null) {
       query.andWhere('execution.status = :status', { status: filters.status });
     }
-    if (filters?.limit) {
-      query.take(filters.limit);
-    }
 
     query.orderBy('execution.createdAt', 'DESC');
-    return query.getMany();
+
+    const page = filters?.page || 1;
+    const pageSize = filters?.pageSize || 20;
+    query.skip((page - 1) * pageSize).take(pageSize);
+
+    const [records, total] = await query.getManyAndCount();
+    return {
+      records,
+      total,
+      current: page,
+      size: pageSize,
+      pages: Math.ceil(total / pageSize),
+    };
   }
 
   async findOne(id: number): Promise<CodeExecution | null> {
@@ -210,7 +224,6 @@ export class CodeExecutionService {
         }
 
         const child = spawn(pythonCmd, ['-u', tempFile], {
-          shell: true,
           env: { ...process.env, PYTHONUNBUFFERED: '1' },
           windowsHide: true,
         });
@@ -282,6 +295,11 @@ export class CodeExecutionService {
   }
 
   private detectPython(): string | null {
+    // Return cached result to avoid repeated spawnSync calls
+    if (this.cachedPythonPath !== undefined) {
+      return this.cachedPythonPath;
+    }
+
     const pythonPaths = [
       'python',
       'python3',
@@ -296,14 +314,16 @@ export class CodeExecutionService {
 
     for (const p of pythonPaths) {
       try {
-        const { status, error } = require('child_process').spawnSync(p, ['--version'], { shell: true, timeout: 5000 });
-        if (status === 0 && !error) {
+        const result = spawnSync(p, ['--version'], { windowsHide: true, timeout: 5000, stdio: 'pipe' });
+        if (result.status === 0 && !result.error) {
+          this.cachedPythonPath = p;
           return p;
         }
       } catch {
         // Continue to next path
       }
     }
+    this.cachedPythonPath = null;
     return null;
   }
 
@@ -341,7 +361,6 @@ export class CodeExecutionService {
         }
 
         const child = spawn(cmd, args, {
-          shell: true,
           env: process.env,
           windowsHide: true,
         });
@@ -413,36 +432,29 @@ export class CodeExecutionService {
   }
 
   private detectJavaScriptRuntime(): string | null {
-    // Check Node.js first
-    try {
-      const nodeResult = spawn('node', ['--version'], { shell: true, windowsHide: true });
-      if (nodeResult.pid) {
-        return 'node';
-      }
-    } catch {
-      // Try next
+    // Return cached result to avoid repeated spawnSync calls
+    if (this.cachedJSRuntime !== undefined) {
+      return this.cachedJSRuntime;
     }
 
-    // Check Deno
-    try {
-      const denoResult = spawn('deno', ['--version'], { shell: true, windowsHide: true });
-      if (denoResult.pid) {
-        return 'deno';
+    // Use spawnSync to avoid leaving orphaned processes
+    const candidates = ['node', 'deno', 'bun'];
+    for (const cmd of candidates) {
+      try {
+        const result = spawnSync(cmd, ['--version'], {
+          windowsHide: true,
+          timeout: 5000,
+          stdio: 'pipe',
+        });
+        if (result.status === 0 && !result.error) {
+          this.cachedJSRuntime = cmd;
+          return cmd;
+        }
+      } catch {
+        // Try next
       }
-    } catch {
-      // Try next
     }
-
-    // Check Bun
-    try {
-      const bunResult = spawn('bun', ['--version'], { shell: true, windowsHide: true });
-      if (bunResult.pid) {
-        return 'bun';
-      }
-    } catch {
-      // Not found
-    }
-
+    this.cachedJSRuntime = null;
     return null;
   }
 
@@ -456,7 +468,8 @@ export class CodeExecutionService {
       { cmd: 'C:\\mingw64\\bin\\g++.exe', args: ['--version'], name: 'g++ (MinGW64)' },
       { cmd: 'C:\\msys64\\mingw64\\bin\\g++.exe', args: ['--version'], name: 'g++ (MSYS2)' },
       { cmd: 'C:\\Program Files\\mingw64\\bin\\g++.exe', args: ['--version'], name: 'g++ (Program Files)' },
-      { cmd: 'cl', args: ['/?'], name: 'MSVC' },
+      // MSVC (cl.exe) is excluded because it requires different compiler flags (-std, -o, etc.)
+      // To add MSVC support, compileAndRunCpp would need separate argument handling.
     ];
 
     let foundCompiler: string | null = null;
@@ -556,11 +569,27 @@ export class CodeExecutionService {
     return new Promise((resolve) => {
       const stdout: string[] = [];
       const stderr: string[] = [];
+      let settled = false;
 
       const child = spawn(cmd, args, {
-        shell: true,
         windowsHide: true,
       });
+
+      // Apply timeout to prevent hanging processes
+      const timeoutId = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          child.kill('SIGTERM');
+          setTimeout(() => {
+            if (!child.killed) child.kill('SIGKILL');
+          }, 5000);
+          resolve({
+            stdout: stdout.join(''),
+            stderr: 'Execution timed out',
+            exitCode: 1,
+          });
+        }
+      }, timeout);
 
       if (stdin && child.stdin) {
         try {
@@ -586,19 +615,27 @@ export class CodeExecutionService {
       });
 
       child.on('close', (code) => {
-        resolve({
-          stdout: stdout.join(''),
-          stderr: stderr.join(''),
-          exitCode: code ?? 0,
-        });
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          resolve({
+            stdout: stdout.join(''),
+            stderr: stderr.join(''),
+            exitCode: code ?? 0,
+          });
+        }
       });
 
       child.on('error', (error) => {
-        resolve({
-          stdout: stdout.join(''),
-          stderr: error.message,
-          exitCode: 1,
-        });
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeoutId);
+          resolve({
+            stdout: stdout.join(''),
+            stderr: error.message,
+            exitCode: 1,
+          });
+        }
       });
     });
   }
@@ -615,21 +652,24 @@ export class CodeExecutionService {
       query.andWhere('execution.userId = :userId', { userId });
     }
 
-    const executions = await query.getMany();
+    // Use SQL aggregation to avoid loading all rows into memory
+    const stats = await query
+      .select('COUNT(*)', 'total')
+      .addSelect('SUM(CASE WHEN execution.status = :success THEN 1 ELSE 0 END)', 'success')
+      .addSelect('SUM(CASE WHEN execution.status = :error THEN 1 ELSE 0 END)', 'error')
+      .addSelect('AVG(execution.executionTime)', 'avgExecutionTime')
+      .setParameter('success', ExecutionStatus.SUCCESS)
+      .setParameter('error', ExecutionStatus.ERROR)
+      .getRawOne();
 
-    const total = executions.length;
-    const success = executions.filter(e => e.status === ExecutionStatus.SUCCESS).length;
-    const error = executions.filter(e => e.status === ExecutionStatus.ERROR).length;
-    const avgExecutionTime = total > 0
-      ? executions.reduce((sum, e) => sum + (e.executionTime || 0), 0) / total
+    const total = parseInt(stats.total, 10) || 0;
+    const success = parseInt(stats.success, 10) || 0;
+    const error = parseInt(stats.error, 10) || 0;
+    const avgExecutionTime = stats.avgExecutionTime
+      ? Math.round(parseFloat(stats.avgExecutionTime) * 100) / 100
       : 0;
 
-    return {
-      total,
-      success,
-      error,
-      avgExecutionTime: Math.round(avgExecutionTime * 100) / 100,
-    };
+    return { total, success, error, avgExecutionTime };
   }
 
   // Clean up old execution records and temp files

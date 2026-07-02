@@ -14,6 +14,7 @@ import {
   executeCode, deleteCodeExecution, getCodeExecutionStats,
   getProjects, createProject, updateProject, deleteProject
 } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 import ErrorDisplay, { parseCppError, parseMultipleErrors, ErrorSummary } from './errorDisplay';
 
 // ============================================================================
@@ -173,7 +174,7 @@ const highlightCode = (code) => {
   tokens.forEach((token, idx) => {
     if (token.line !== currentLine) {
       if (lineContent) {
-        result += lineContent + '\n';
+        result += `${lineContent}\n`;
       }
       lineContent = '';
       currentLine = token.line;
@@ -280,7 +281,7 @@ const HighlightedCodeEditor = ({ value, onChange, fontSize = 14, readOnly = fals
             whiteSpace: 'pre',
             lineHeight: lineHeight
           }}
-          dangerouslySetInnerHTML={{ __html: highlightedHTML + '\n' }}
+          dangerouslySetInnerHTML={{ __html: `${highlightedHTML}\n` }}
         />
 
         {/* Textarea layer */}
@@ -1580,8 +1581,7 @@ const CppEditor = () => {
 
     try {
       // First create a code execution record
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const user = safeGetJSON('user');
 
       const createResult = await createCodeExecution({
         userId: user?.id,
@@ -1657,8 +1657,7 @@ const CppEditor = () => {
 
   const handleSaveToCloud = async () => {
     try {
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const user = safeGetJSON('user');
 
       if (currentProjectId) {
         await updateProject(currentProjectId, {
@@ -1688,8 +1687,7 @@ const CppEditor = () => {
 
   const handleLoadProjects = async () => {
     try {
-      const userStr = localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : null;
+      const user = safeGetJSON('user');
 
       const projects = await getProjects(user?.id);
       const cppProjects = Array.isArray(projects)
@@ -1874,8 +1872,8 @@ const CppEditor = () => {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Editor panel */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #444' }}>
-          <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ height: '100%' }}>
-            <TabPane tab="编辑器" key="editor" style={{ height: '100%' }}>
+          <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ height: '100%' }} items={[
+            { key: 'editor', label: '编辑器', children: (
               <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                 <HighlightedCodeEditor
                   value={code}
@@ -1883,8 +1881,8 @@ const CppEditor = () => {
                   fontSize={fontSize}
                 />
               </div>
-            </TabPane>
-            <TabPane tab="历史记录" key="history">
+            )},
+            { key: 'history', label: '历史记录', children: (
               <div style={{ padding: 16 }}>
                 <Space direction="vertical" style={{ width: '100%' }}>
                   <Button type="primary" icon={<PlusOutlined />} onClick={handleNewProject} block>
@@ -1917,8 +1915,8 @@ const CppEditor = () => {
                   )}
                 </Space>
               </div>
-            </TabPane>
-          </Tabs>
+            )},
+          ]} />
         </div>
 
         {/* Output panel */}

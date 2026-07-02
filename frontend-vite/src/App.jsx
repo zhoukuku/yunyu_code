@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense } from 'react';
 import Layout from './components/Layout';
 import { LoadingOverlay } from './components/LoadingOverlay';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import LoginPage from './pages/login';
 import HomePage from './pages/home';
 import CoursesPage from './pages/courses';
@@ -13,6 +14,7 @@ import WorkDetailPage from './pages/community/work';
 import CompetitionPage from './pages/competition';
 import CreatePage from './pages/create';
 import IDEPage from './pages/ide';
+import IDEEnhancedPage from './pages/ideEnhanced';
 import PythonEditorPage from './pages/python-editor';
 import CppEditorPage from './pages/cpp-editor';
 import MyWorksPage from './pages/myworks';
@@ -32,13 +34,14 @@ import LeaderboardPage from './pages/leaderboard';
 import ClassLeaderboardPage from './pages/class-leaderboard';
 import ExplorePage from './pages/explore';
 import AdminPage from './pages/admin';
+import AdminDashboard from './pages/admin/AdminDashboard';
 import UserManage from './pages/admin/UserManage';
 import CourseManage from './pages/admin/CourseManage';
 import NoticeManage from './pages/admin/NoticeManage';
 import HomeworkPage from './pages/homework';
-import HomeworkDetailPage from './pages/homework/detail';
-import CreateHomeworkPage from './pages/homework/create';
-import HomeworkSubmissionsPage from './pages/homework/submissions';
+import HomeworkDetailPage from './pages/homework/detail.jsx';
+import CreateHomeworkPage from './pages/homework/create.jsx';
+import HomeworkSubmissionsPage from './pages/homework/submissions.jsx';
 import NotesPage from './pages/notes';
 import MaterialsPage from './pages/materials';
 import ParentalReportPage from './pages/parental-report';
@@ -61,9 +64,11 @@ function App() {
           <Route path="competition" element={<CompetitionPage />} />
           <Route path="competition/:tab" element={<CompetitionPage />} />
           <Route path="create" element={<CreatePage />} />
-          <Route path="create/scratch" element={<IDEPage />} />
-          <Route path="create/python" element={<PythonEditorPage />} />
-          <Route path="create/cpp" element={<CppEditorPage />} />
+          <Route path="create/scratch" element={<ErrorBoundary><IDEPage /></ErrorBoundary>} />
+          <Route path="create/scratch-enhanced" element={<ErrorBoundary><IDEEnhancedPage /></ErrorBoundary>} />
+          <Route path="create/python" element={<ErrorBoundary><PythonEditorPage /></ErrorBoundary>} />
+          <Route path="create/python-ide" element={<ErrorBoundary><PythonEditorPage /></ErrorBoundary>} />
+          <Route path="create/cpp" element={<ErrorBoundary><CppEditorPage /></ErrorBoundary>} />
           <Route path="create/:type" element={<CreatePage />} />
           <Route path="projects/my" element={<MyWorksPage />} />
           <Route path="favorites" element={<FavoritesPage />} />
@@ -89,10 +94,12 @@ function App() {
           <Route path="homework/:id" element={<HomeworkDetailPage />} />
           <Route path="homework/:id/submissions" element={<HomeworkSubmissionsPage />} />
         </Route>
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/admin/users" element={<UserManage />} />
-        <Route path="/admin/courses" element={<CourseManage />} />
-        <Route path="/admin/notices" element={<NoticeManage />} />
+        <Route path="/admin" element={<AdminPage />}>
+          <Route index element={<AdminDashboard />} />
+          <Route path="users" element={<UserManage />} />
+          <Route path="courses" element={<CourseManage />} />
+          <Route path="notices" element={<NoticeManage />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

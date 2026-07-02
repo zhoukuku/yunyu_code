@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, Row, Col, Button, List, message, Modal, Input } from 'antd';
 import { EditOutlined, DeleteOutlined, CloudOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getProjects, deleteProject } from '../../services/api';
+import { safeGetJSON } from '../../utils/storage';
 
 export default function MyWorksPage() {
   const [projects, setProjects] = useState([]);
@@ -11,9 +12,24 @@ export default function MyWorksPage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const fetchProjects = useCallback(async () => {
+    setLoading(true);
+    try {
+      const user = safeGetJSON('user', {});
+      const res = await getProjects(user.id);
+      const projectsList = res?.result || res?.records || (Array.isArray(res) ? res : []);
+      setProjects(projectsList);
+      setFilteredProjects(projectsList);
+    } catch (error) {
+      console.error('获取项目列表失败:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchProjects();
-  }, []);
+  }, [fetchProjects]);
 
   useEffect(() => {
     if (searchText) {
@@ -25,21 +41,6 @@ export default function MyWorksPage() {
       setFilteredProjects(projects);
     }
   }, [searchText, projects]);
-
-  const fetchProjects = async () => {
-    setLoading(true);
-    try {
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      const res = await getProjects(user.id);
-      const projectsList = res?.result || res?.records || (Array.isArray(res) ? res : []);
-      setProjects(projectsList);
-      setFilteredProjects(projectsList);
-    } catch (error) {
-      console.error('获取项目列表失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleDelete = async (id) => {
     try {

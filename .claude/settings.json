@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"e:/k/meee/code/project01/scraped-data/projects\" \"e:/k/meee/code/project01/scraped-data/users\" \"e:/k/meee/code/project01/scraped-data/assets/js\" \"e:/k/meee/code/project01/scraped-data/assets/css\" \"e:/k/meee/code/project01/scraped-data/assets/images\" \"e:/k/meee/code/project01/scraped-data/assets/fonts\" \"e:/k/meee/code/project01/scripts\")",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(npx playwright *)",
+      "Bash(node scripts/scratch-crawler.js)",
+      "Bash(node scripts/scratch-api.js)",
+      "Bash(node scripts/fetch-api-data.js)",
+      "Bash(curl -L -o umi.js \"https://frontend.5aqima.com/prod/qima-scratch-pc/20260125163000/umi.js\")",
+      "Bash(curl -s \"https://scratch.5aqima.com/api/auth/login\" -X POST -H \"Content-Type: application/json\" -d '{\"username\":\"13713316871\",\"password\":\"316871\",\"account\":\"13713316871\"}')",
+      "Bash(curl -s -c cookies.txt \"https://scratch.5aqima.com/\" -L)",
+      "Bash(node scripts/playwright-login.js)",
+      "Bash(node scripts/probe-api.js)",
+      "Bash(node scripts/capture-network.js)",
+      "Bash(node scripts/fetch-all-data.js)",
+      "Bash(node scripts/download-resources.js)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(npx ts-node *)",
+      "Bash(curl -s -X POST http://localhost:3000/account/login -H \"Content-Type: application/json\" -d '{\"account\":\"13713316871\",\"password\":\"316871\"}')",
+      "Bash(curl -s http://localhost:3000/teacher/class)",
+      "Bash(curl -s http://localhost:3000/api/)",
+      "Bash(npm start *)",
+      "Bash(npm ls *)",
+      "Bash(powershell -Command \"Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue; Get-ChildItem -Name\")",
+      "Bash(powershell -Command \"Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue; Get-ChildItem -Name\")",
+      "Bash(cmd //c \"rmdir /s /q node_modules\")",
+      "Bash(ls node_modules)",
+      "Bash(npm rebuild *)",
+      "Bash(cat \"C:\\\\Users\\\\EDY\\\\AppData\\\\Local\\\\npm-cache\\\\_logs\\\\2026-06-16T01_43_01_382Z-debug-0.log\" 2>/dev/null | tail -30)",
+      "Read(//c/Users/EDY/AppData/Local/npm-cache/_logs/**)",
+      "Bash(npm cache *)",
+      "Bash(yarn --version)"
+    ],
+    "additionalDirectories": [
+      "e:\\k\\meee\\code\\project01\\scraped-data"
+    ]
+  }
+}

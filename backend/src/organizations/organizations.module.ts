@@ -5,12 +5,13 @@ import { Organization } from '../entities/organization.entity';
 import { OrganizationClass } from '../entities/organization-class.entity';
 import { Student } from '../entities/student.entity';
 import { ClassEntity } from '../entities/class.entity';
+import { User } from '../entities/user.entity';
 import { OrganizationsService } from './organizations.service';
 import { OrganizationsController } from './organizations.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Organization, OrganizationClass, Student, ClassEntity]),
+    TypeOrmModule.forFeature([Organization, OrganizationClass, Student, ClassEntity, User]),
     AuthModule,
   ],
   providers: [OrganizationsService],

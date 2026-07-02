@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { ClassLeaderboard, ClassLeaderboardType } from '../entities/class-leaderboard.entity';
 import { ClassEntity } from '../entities/class.entity';
 import { UserClass } from '../entities/user-class.entity';
-import { Leaderboard } from '../entities/leaderboard.entity';
+import { Leaderboard, LeaderboardType } from '../entities/leaderboard.entity';
 
 @Injectable()
 export class ClassLeaderboardService {
@@ -61,70 +61,44 @@ export class ClassLeaderboardService {
     const period = this.getPeriodKey(type);
     const classes = await this.classRepository.find();
 
-    for (const classEntity of classes) {
-      const userClasses = await this.userClassRepository.find({
-        where: { classId: classEntity.id, status: 1 },
-      });
-      const userIds = userClasses.map(uc => uc.userId);
+    if (classes.length === 0) return;
 
-      if (userIds.length === 0) continue;
+    const classIds = classes.map(c => c.id);
+    const leaderboardType: LeaderboardType = (type === ClassLeaderboardType.ALL_TIME ? 'all_time' : type) as LeaderboardType;
 
-      // Get period filter for user leaderboard
-      let periodFilter: any = {};
-      if (type === ClassLeaderboardType.DAILY) {
-        periodFilter = { type: 'daily', period };
-      } else if (type === ClassLeaderboardType.WEEKLY) {
-        periodFilter = { type: 'weekly', period };
-      } else {
-        periodFilter = { type: 'all_time' };
-      }
-
-      // Sum scores of all students in the class
-      const result = await this.leaderboardRepository
-        .createQueryBuilder('lb')
-        .where('lb.user_id IN (:...userIds)', { userIds })
-        .andWhere('lb.type = :type', { type: type === ClassLeaderboardType.ALL_TIME ? 'all_time' : type })
-        .select('SUM(lb.score)', 'totalScore')
-        .getRawOne();
-
-      const totalScore = parseInt(result.totalScore) || 0;
-
-      // Update or create class leaderboard entry
-      let entry = await this.classLeaderboardRepository.findOne({
-        where: { classId: classEntity.id, type, period },
-      });
-
-      if (!entry) {
-        entry = this.classLeaderboardRepository.create({
-          classId: classEntity.id,
-          type,
-          period,
-          totalScore,
-          rank: 0,
-        });
-      } else {
-        entry.totalScore = totalScore;
-      }
-
-      await this.classLeaderboardRepository.save(entry);
-    }
-
-    // Recalculate ranks
-    await this.recalculateClassRanks(type);
+    // Use a single query to calculate class scores directly in the database
+    // This computes the total score for each class based on sum of user scores
+    await this.classLeaderboardRepository.query(`
+      INSERT INTO class_leaderboard (class_id, type, period, total_score, rank)
+      SELECT
+        uc.class_id,
+        $1,
+        $2,
+        COALESCE(SUM(l.score), 0),
+        0
+      FROM user_class uc
+      INNER JOIN leaderboard l ON l.user_id = uc.user_id AND l.type = $3
+      WHERE uc.class_id = ANY($4) AND uc.status = 1
+      GROUP BY uc.class_id
+      ON CONFLICT (class_id, type, period)
+      DO UPDATE SET total_score = EXCLUDED.total_score
+    `, [type, period, leaderboardType, classIds]);
   }
 
   async recalculateClassRanks(type: ClassLeaderboardType): Promise<void> {
     const period = this.getPeriodKey(type);
-    const entries = await this.classLeaderboardRepository.find({
-      where: { type, period },
-      order: { totalScore: 'DESC' },
-    });
 
-    for (let i = 0; i < entries.length; i++) {
-      entries[i].rank = i + 1;
-    }
-
-    await this.classLeaderboardRepository.save(entries);
+    // Use a raw query to update ranks directly in DB without loading all entries into memory
+    await this.classLeaderboardRepository.query(`
+      UPDATE class_leaderboard cl
+      SET rank = ranked.rank_num
+      FROM (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY total_score DESC) as rank_num
+        FROM class_leaderboard
+        WHERE type = $1 AND period = $2
+      ) ranked
+      WHERE cl.id = ranked.id AND cl.type = $1 AND cl.period = $2
+    `, [type, period]);
   }
 
   async getClassLeaderboardStats(type: ClassLeaderboardType): Promise<{ totalClasses: number; topScore: number }> {
@@ -142,7 +116,7 @@ export class ClassLeaderboardService {
     });
 
     return {
-      totalClasses: parseInt(result.totalClasses) || 0,
+      totalClasses: parseInt(result.totalClasses, 10) || 0,
       topScore: topEntry?.totalScore || 0,
     };
   }

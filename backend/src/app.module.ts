@@ -1,6 +1,10 @@
+import * as path from 'path';
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { AuthThrottlerGuard } from './common/guards/throttle.guard';
 import { AuthModule } from './auth/auth.module';
 import { SecurityModule } from './security/security.module';
 import { UsersModule } from './users/users.module';
@@ -30,9 +34,24 @@ import { CompetitionEvaluationModule } from './competition-evaluation/competitio
 import { ParentalReportModule } from './parental-report/parental-report.module';
 import { CodeExecutionModule } from './code-execution/code-execution.module';
 import { OrganizationsModule } from './organizations/organizations.module';
+// CloudVariablesModule requires @nestjs/websockets and socket.io packages.
+// It is conditionally loaded only when those peer dependencies are installed.
+// To enable: npm install @nestjs/websockets @nestjs/platform-socket.io socket.io
+let CloudVariablesModule: any = null;
+try {
+  require.resolve('@nestjs/websockets');
+  require.resolve('socket.io');
+  CloudVariablesModule = require('./cloud-variables/cloud-variables.module').CloudVariablesModule;
+} catch {
+  console.log('[AppModule] CloudVariablesModule disabled: missing @nestjs/websockets or socket.io packages');
+}
+import { SeedModule } from './seed/seed.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     // 3) 速率限制配置 - 60秒内最多100个请求
     ThrottlerModule.forRoot([
       {
@@ -45,12 +64,12 @@ import { OrganizationsModule } from './organizations/organizations.module';
     TypeOrmModule.forRoot({
       type: 'mysql',
       host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT || '3306'),
+      port: parseInt(process.env.DB_PORT, 10) || 3306,
       username: process.env.DB_USERNAME || 'root',
       password: process.env.DB_PASSWORD || 'root',
       database: process.env.DB_DATABASE || 'yunyu_learning',
-      entities: [__dirname + '/entities/*.entity{.ts,.js}', __dirname + '/search/*.entity{.ts,.js}'],
-      synchronize: true, // 开发环境自动同步表结构
+      entities: [path.join(__dirname, 'entities', '*.entity{.ts,.js}'), path.join(__dirname, 'search', '*.entity{.ts,.js}')],
+      synchronize: process.env.NODE_ENV !== 'production',
       charset: 'utf8mb4',
       timezone: '+08:00',
     }),
@@ -83,6 +102,14 @@ import { OrganizationsModule } from './organizations/organizations.module';
     ParentalReportModule,
     CodeExecutionModule,
     OrganizationsModule,
+    ...(CloudVariablesModule ? [CloudVariablesModule] : []),
+    SeedModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: AuthThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}
