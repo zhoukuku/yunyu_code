@@ -2240,6 +2240,10 @@ class PythonCodeExecutor {
           line = line.replace(/\[(\w+)\s+for\s+(\w+)\s+in\s+(\w+)\s+if\s+(.+?)\]/g, '($3).filter($4).map($2 => $1)');
           line = line.replace(/\[(\w+)\s+for\s+(\w+)\s+in\s+(\w+)\]/g, '($3).map($2 => $1)');
 
+          // Handle dict comprehension: {k: v for k, v in items}
+          line = line.replace(/\{(\w+)\s*:\s*(\w+)\s+for\s+(\w+)\s+in\s+([^}]+)\}/g, 'Object.fromEntries(($4).map($3 => [$1, $2]))');
+          line = line.replace(/\{(\w+)\s*:\s*(\w+)\s+for\s+(\w+)\s+in\s+([^}]+)\s+if\s+(.+?)\}/g, 'Object.fromEntries(($4).filter($5).map($3 => [$1, $2]))');
+
           // Handle f-strings (improved)
           // Matches f"..." or f'...' with proper handling of {expressions}
           line = line.replace(/f"([^"]*)"/g, (_, s) => {

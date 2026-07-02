@@ -157,12 +157,10 @@ class ScratchInterpreter {
   }
 
   motion_setx(spriteId, x) {
-    const state = this.state.sprites[spriteId] || {};
     this._updateState(spriteId, { x });
   }
 
   motion_sety(spriteId, y) {
-    const state = this.state.sprites[spriteId] || {};
     this._updateState(spriteId, { y });
   }
 
