@@ -2095,10 +2095,22 @@ class PythonCodeExecutor {
         else if (/^\s*class\s+\w+/.test(trimmed)) {
           inClass = true;
           indentStack.push(indent + 4);
-          const match = trimmed.match(/^class\s+(\w+)\s*(\([^)]*\))?\s*:/);
+          const match = trimmed.match(/^class\s+(\w+)\s*(?:\(([^)]*)\))?\s*:/);
           if (match) {
-            const [, name] = match;
-            line = `const ${name} = class {`;
+            const [, name, parents] = match;
+            if (parents) {
+              const parentList = parents.split(',').map(p => p.trim()).filter(p => p);
+              if (parentList.length === 1) {
+                line = `class ${name} extends ${parentList[0]} {`;
+              } else {
+                result.push(`const ${name} = Object.assign(class {}, ${parentList.join(', ')});`);
+                inClass = false;
+                indentStack.pop();
+                continue;
+              }
+            } else {
+              line = `class ${name} {`;
+            }
           }
         }
         // Handle elif
@@ -2228,9 +2240,59 @@ class PythonCodeExecutor {
           line = line.replace(/\[(\w+)\s+for\s+(\w+)\s+in\s+(\w+)\s+if\s+(.+?)\]/g, '($3).filter($4).map($2 => $1)');
           line = line.replace(/\[(\w+)\s+for\s+(\w+)\s+in\s+(\w+)\]/g, '($3).map($2 => $1)');
 
-          // Handle f-strings (basic)
-          line = line.replace(/f"(.*?)"/g, (_, s) => `"${s.replace(/\{(\w+)\}/g, '" + $1 + "')}"`);
-          line = line.replace(/f'(.*?)'/g, (_, s) => `"${s.replace(/\{(\w+)\}/g, '" + $1 + "')}"`);
+          // Handle f-strings (improved)
+          // Matches f"..." or f'...' with proper handling of {expressions}
+          line = line.replace(/f"([^"]*)"/g, (_, s) => {
+            // Replace {expr} with "+expr+", handling nested braces
+            const parts = [];
+            let depth = 0;
+            let current = '';
+            for (const char of s) {
+              if (char === '{') {
+                if (depth > 0) current += '{';
+                if (current) parts.push('"' + current + '"');
+                current = '';
+                depth++;
+              } else if (char === '}') {
+                depth--;
+                if (depth > 0) {
+                  current += '}';
+                } else {
+                  parts.push('" + (' + current + ') + "');
+                  current = '';
+                }
+              } else {
+                current += char;
+              }
+            }
+            if (current) parts.push('"' + current + '"');
+            return parts.join(' + ') || '""';
+          });
+          line = line.replace(/f'([^']*)'/g, (_, s) => {
+            const parts = [];
+            let depth = 0;
+            let current = '';
+            for (const char of s) {
+              if (char === '{') {
+                if (depth > 0) current += '{';
+                if (current) parts.push('"' + current + '"');
+                current = '';
+                depth++;
+              } else if (char === '}') {
+                depth--;
+                if (depth > 0) {
+                  current += '}';
+                } else {
+                  parts.push('" + (' + current + ') + "');
+                  current = '';
+                }
+              } else {
+                current += char;
+              }
+            }
+            if (current) parts.push('"' + current + '"');
+            return parts.join(' + ') || '""';
+          });
         }
 
         result.push(line);
@@ -2261,7 +2323,7 @@ class PythonCodeExecutor {
         .replace(/range\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/g, 'Array.from({length: $2 - $1}, (_, i) => i + $1)')
         .replace(/range\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/g, 'Array.from({length: Math.ceil(($2-$1)/$3)}, (_, i) => $1 + i*$3)')
         .replace(/enumerate\s*\(([^)]+)\)/g, '([...($1)].entries())')
-        .replace(/zip\s*\(([^)]+)\)/g, '([...($1)].entries())')
+        .replace(/zip\s*\(([^)]+)\)/g, 'zip($1)')
         .replace(/\bTrue\b/g, 'true')
         .replace(/\bFalse\b/g, 'false')
         .replace(/\bNone\b/g, 'null');

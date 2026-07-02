@@ -578,12 +578,38 @@ class ScratchInterpreter {
   }
 
   sensing_touchingcolor(spriteId, color) {
-    // Would need canvas pixel detection
+    // Basic proximity detection - check if sprite is near edge or another sprite
+    const state = this.state.sprites[spriteId] || {};
+    const x = state.x ?? 0;
+    const y = state.y ?? 0;
+    const size = state.size ?? 100;
+
+    // Check edge touching
+    const halfSize = size / 200;
+    if (x - halfSize < -240 || x + halfSize > 240 || y - halfSize < -180 || y + halfSize > 180) {
+      return true;
+    }
+
+    // Check if touching another sprite
+    for (const sprite of this.sprites) {
+      if (sprite.id === spriteId) continue;
+      const otherState = this.state.sprites[sprite.id] || {};
+      const otherX = otherState.x ?? 0;
+      const otherY = otherState.y ?? 0;
+      const otherSize = otherState.size ?? 100;
+      const dx = x - otherX;
+      const dy = y - otherY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < (halfSize + otherSize / 200)) {
+        return true;
+      }
+    }
+
     return false;
   }
 
   sensing_coloristouching(spriteId, color1, color2) {
-    return false;
+    return this.sensing_touchingcolor(spriteId, color1);
   }
 
   sensing_distanceto(spriteId, targetId) {
